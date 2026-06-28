@@ -1,4 +1,5 @@
 import type { ChartNote } from "../types/meta";
+import { laneColumnIndex } from "../types/meta";
 import { sortChartNotes } from "./chartNotes";
 import { beatToTick, RESOLUTION, snapBeat } from "./resolution";
 
@@ -42,6 +43,25 @@ export function notesInTickRange(
   return notes.filter((note) => {
     const tick = beatToTick(note.Beat);
     return tick >= lo && tick <= hi;
+  });
+}
+
+export function notesInSelectionRect(
+  notes: ChartNote[],
+  anchorTick: number,
+  currentTick: number,
+  anchorCol: number,
+  currentCol: number
+): ChartNote[] {
+  const loT = Math.min(anchorTick, currentTick);
+  const hiT = Math.max(anchorTick, currentTick);
+  const loC = Math.min(anchorCol, currentCol);
+  const hiC = Math.max(anchorCol, currentCol);
+  return notes.filter((note) => {
+    const tick = beatToTick(note.Beat);
+    if (tick < loT || tick > hiT) return false;
+    const col = laneColumnIndex(note.Id);
+    return col >= loC && col <= hiC;
   });
 }
 

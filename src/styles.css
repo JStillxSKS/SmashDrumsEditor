@@ -849,6 +849,10 @@ body {
   cursor: cell;
 }
 
+.chart-wrap.mode-copy .chart-canvas {
+  cursor: crosshair;
+}
+
 .placement-hint {
   position: absolute;
   top: 52px;

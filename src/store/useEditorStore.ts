@@ -49,6 +49,7 @@ import type { AudioSource } from "../utils/audioSource";
 import { detectBpm } from "../utils/bpmDetect";
 import {
   mergeNotes,
+  notesInSelectionRect,
   notesInTickRange,
   parseClipboard,
   pastePayloadAtBeat,
@@ -147,6 +148,12 @@ type EditorState = {
   placePhaseAtBeat: (beat: number) => void;
   placeAnchorAtBeat: (beat: number) => void;
   copyNotesInRange: (minTick: number, maxTick: number) => Promise<number>;
+  copyNotesInSelection: (
+    anchorTick: number,
+    currentTick: number,
+    anchorCol: number,
+    currentCol: number
+  ) => Promise<number>;
   pasteNotesAtBeat: (strikeBeat: number) => Promise<number>;
   clearClipboardMessage: () => void;
 };
@@ -497,6 +504,30 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const picked = notesInTickRange(charts[difficulty], minTick, maxTick);
     if (picked.length === 0) {
       set({ clipboardMessage: "Nothing to copy in view" });
+      return 0;
+    }
+    const anchorBeat = selectionFirstBeat(picked);
+    const payload: NoteClipboardPayload = { version: 1, notes: picked, anchorBeat };
+    set({ noteClipboard: payload, clipboardMessage: `Copied ${picked.length} notes` });
+    try {
+      await navigator.clipboard.writeText(serializeClipboard(payload));
+    } catch {
+      // Internal buffer still works when system clipboard is blocked.
+    }
+    return picked.length;
+  },
+
+  copyNotesInSelection: async (anchorTick, currentTick, anchorCol, currentCol) => {
+    const { difficulty, charts } = get();
+    const picked = notesInSelectionRect(
+      charts[difficulty],
+      anchorTick,
+      currentTick,
+      anchorCol,
+      currentCol
+    );
+    if (picked.length === 0) {
+      set({ clipboardMessage: "No notes in selection" });
       return 0;
     }
     const anchorBeat = selectionFirstBeat(picked);

@@ -37,6 +37,18 @@ const PHASE_BLINK_MS = 550;
 const NOTE_HIT_MS = 520;
 const LANE_HEADER_H = 44;
 const LANE_GAP = 6;
+const COPY_SCROLL_EDGE = 44;
+const COPY_SCROLL_MAX_TICKS = 18;
+
+type CopySelectionState = {
+  active: boolean;
+  anchorTick: number;
+  anchorCol: number;
+  currentTick: number;
+  currentCol: number;
+  pointerX: number;
+  pointerY: number;
+};
 
 function laneMetrics(trackW: number) {
   const gap = LANE_GAP;
@@ -59,6 +71,49 @@ function columnAtX(x: number, trackX: number, trackW: number): number | null {
     if (x >= left && x < left + laneW) return col;
   }
   return null;
+}
+
+function pointerToChart(
+  x: number,
+  y: number,
+  scrollTick: number,
+  canvasW: number,
+  canvasH: number,
+  ppt: number
+): { tick: number; col: number } {
+  const sy = canvasH - STRIKE_OFFSET;
+  const tick = scrollTick + (sy - y) / ppt;
+  const col = columnAtX(x, 0, canvasW) ?? (x < canvasW / 2 ? 0 : DRUM_LANES.length - 1);
+  return { tick, col };
+}
+
+function drawCopySelectionBox(
+  ctx: CanvasRenderingContext2D,
+  selection: CopySelectionState,
+  scrollTick: number,
+  w: number,
+  h: number,
+  ppt: number
+) {
+  const sy = h - STRIKE_OFFSET;
+  const { laneW, gap } = laneMetrics(w);
+  const loT = Math.min(selection.anchorTick, selection.currentTick);
+  const hiT = Math.max(selection.anchorTick, selection.currentTick);
+  const loC = Math.min(selection.anchorCol, selection.currentCol);
+  const hiC = Math.max(selection.anchorCol, selection.currentCol);
+  const x = laneLeft(0, loC, laneW, gap);
+  const boxW = laneLeft(0, hiC, laneW, gap) + laneW - x;
+  const yTop = sy - (hiT - scrollTick) * ppt;
+  const yBottom = sy - (loT - scrollTick) * ppt;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(255, 184, 0, 0.14)";
+  ctx.strokeStyle = "rgba(255, 184, 0, 0.85)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+  ctx.fillRect(x, yTop, boxW, yBottom - yTop);
+  ctx.strokeRect(x + 0.5, yTop + 0.5, boxW - 1, yBottom - yTop - 1);
+  ctx.restore();
 }
 
 /** Caps Lock + click erase — match the gem under the cursor, not just the snapped grid row. */
@@ -353,6 +408,8 @@ export function ChartEditor() {
   }>({ lastBeat: null, blinkPhase: null, blinkStart: 0 });
   /** Editor-only — note hit times keyed by noteHitKey */
   const noteHitRef = useRef<Map<string, number>>(new Map());
+  const copySelectionRef = useRef<CopySelectionState | null>(null);
+  const copyAutoScrollRef = useRef(0);
 
   const {
     meta,
@@ -377,6 +434,7 @@ export function ChartEditor() {
     placePhaseAtBeat,
     placeAnchorAtBeat,
     copyNotesInRange,
+    copyNotesInSelection,
     pasteNotesAtBeat,
     clipboardMessage,
     clearClipboardMessage,
@@ -836,6 +894,11 @@ export function ChartEditor() {
         ctx.fillText(`♪ ${waveLabel}`, trackX + 8, h - 10);
       }
 
+      const selection = copySelectionRef.current;
+      if (placementMode === "copy" && selection?.active) {
+        drawCopySelectionBox(ctx, selection, scrollTick, w, h, ppt);
+      }
+
     };
 
     draw();
@@ -884,9 +947,25 @@ export function ChartEditor() {
   }, [clipboardMessage, clearClipboardMessage]);
 
   useEffect(() => {
+    const stopCopyDrag = () => {
+      if (copyAutoScrollRef.current) {
+        cancelAnimationFrame(copyAutoScrollRef.current);
+        copyAutoScrollRef.current = 0;
+      }
+    };
+
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
       const mod = e.ctrlKey || e.metaKey;
+      if (!mod && e.key.toLowerCase() === "c") {
+        const state = useEditorStore.getState();
+        if (state.isPlaying) return;
+        e.preventDefault();
+        setPlacementMode(state.placementMode === "copy" ? null : "copy");
+        copySelectionRef.current = null;
+        stopCopyDrag();
+        return;
+      }
       if (mod && e.key.toLowerCase() === "c") {
         const state = useEditorStore.getState();
         if (state.placementMode) return;
@@ -911,6 +990,8 @@ export function ChartEditor() {
       }
       if (e.key === "Escape") {
         setPlacementMode(null);
+        copySelectionRef.current = null;
+        stopCopyDrag();
         return;
       }
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
@@ -942,10 +1023,148 @@ export function ChartEditor() {
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      stopCopyDrag();
+    };
   }, [setPlacementMode, toggleNote, copyNotesInRange, pasteNotesAtBeat]);
 
-  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  useEffect(() => {
+    const tickCopyAutoScroll = () => {
+      const selection = copySelectionRef.current;
+      const canvas = canvasRef.current;
+      if (!selection?.active || !canvas) {
+        copyAutoScrollRef.current = 0;
+        return;
+      }
+
+      const state = useEditorStore.getState();
+      if (state.isPlaying || state.placementMode !== "copy") {
+        copyAutoScrollRef.current = 0;
+        return;
+      }
+
+      const rect = canvas.getBoundingClientRect();
+      const h = rect.height;
+      const sy = h - STRIKE_OFFSET;
+      const topEdge = LANE_HEADER_H + COPY_SCROLL_EDGE;
+      const bottomEdge = sy - COPY_SCROLL_EDGE;
+      let delta = 0;
+
+      if (selection.pointerY < topEdge) {
+        delta = Math.min(1, (topEdge - selection.pointerY) / COPY_SCROLL_EDGE) * COPY_SCROLL_MAX_TICKS;
+      } else if (selection.pointerY > bottomEdge) {
+        delta = -Math.min(1, (selection.pointerY - bottomEdge) / COPY_SCROLL_EDGE) * COPY_SCROLL_MAX_TICKS;
+      }
+
+      if (delta !== 0) {
+        const nextScroll = Math.max(0, state.scrollTick + delta);
+        state.setScrollTick(nextScroll);
+        const chart = pointerToChart(
+          selection.pointerX,
+          selection.pointerY,
+          nextScroll,
+          rect.width,
+          h,
+          state.pixelsPerTick
+        );
+        copySelectionRef.current = {
+          ...selection,
+          currentTick: chart.tick,
+          currentCol: chart.col,
+        };
+      }
+
+      copyAutoScrollRef.current = requestAnimationFrame(tickCopyAutoScroll);
+    };
+
+    const onMove = (e: MouseEvent) => {
+      const selection = copySelectionRef.current;
+      if (!selection?.active) return;
+
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const state = useEditorStore.getState();
+      const chart = pointerToChart(x, y, state.scrollTick, rect.width, rect.height, state.pixelsPerTick);
+
+      copySelectionRef.current = {
+        ...selection,
+        currentTick: chart.tick,
+        currentCol: chart.col,
+        pointerX: x,
+        pointerY: y,
+      };
+
+      if (!copyAutoScrollRef.current) {
+        copyAutoScrollRef.current = requestAnimationFrame(tickCopyAutoScroll);
+      }
+    };
+
+    const onUp = () => {
+      const selection = copySelectionRef.current;
+      if (!selection?.active) return;
+
+      if (copyAutoScrollRef.current) {
+        cancelAnimationFrame(copyAutoScrollRef.current);
+        copyAutoScrollRef.current = 0;
+      }
+
+      copySelectionRef.current = null;
+      void copyNotesInSelection(
+        selection.anchorTick,
+        selection.currentTick,
+        selection.anchorCol,
+        selection.currentCol
+      );
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      if (copyAutoScrollRef.current) {
+        cancelAnimationFrame(copyAutoScrollRef.current);
+        copyAutoScrollRef.current = 0;
+      }
+    };
+  }, [copyNotesInSelection]);
+
+  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (placementMode === "copy") {
+      if (e.button !== 0 || isPlaying) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      if (y < LANE_HEADER_H) return;
+
+      const state = useEditorStore.getState();
+      const chart = pointerToChart(
+        x,
+        y,
+        state.scrollTick,
+        rect.width,
+        rect.height,
+        state.pixelsPerTick
+      );
+      copySelectionRef.current = {
+        active: true,
+        anchorTick: chart.tick,
+        anchorCol: chart.col,
+        currentTick: chart.tick,
+        currentCol: chart.col,
+        pointerX: x,
+        pointerY: y,
+      };
+      e.preventDefault();
+      return;
+    }
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -1006,15 +1225,21 @@ export function ChartEditor() {
       ? "mode-phase"
       : placementMode === "anchor"
         ? "mode-anchor"
-        : "";
+        : placementMode === "copy"
+          ? "mode-copy"
+          : "";
 
   return (
     <div className="chart-stage">
       <div className={`chart-wrap ${wrapModeClass}`} ref={wrapRef}>
-        <canvas ref={canvasRef} className="chart-canvas" onMouseDown={handleClick} />
+        <canvas ref={canvasRef} className="chart-canvas" onMouseDown={handleCanvasMouseDown} />
         {placementMode && (
           <div className="placement-hint">
-            {placementMode === "phase" ? "Phase placement — click grid" : "Anchor placement — click grid"}
+            {placementMode === "phase"
+              ? "Phase placement — click grid"
+              : placementMode === "anchor"
+                ? "Anchor placement — click grid"
+                : "Copy — drag a box around notes (auto-scrolls at edges)"}
             <span className="placement-hint-key">Esc</span>
           </div>
         )}

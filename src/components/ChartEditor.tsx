@@ -435,7 +435,7 @@ export function ChartEditor() {
     placeAnchorAtBeat,
     copyNotesInRange,
     copyNotesInSelection,
-    pasteNotesAtBeat,
+    pasteNotesAtStrikeTick,
     clipboardMessage,
     clearClipboardMessage,
   } = useEditorStore();
@@ -985,7 +985,7 @@ export function ChartEditor() {
         if (state.placementMode || state.isPlaying) return;
         e.preventDefault();
         const strikeTick = snapTick(scrollTickAtClick(), state.snapTicks);
-        void pasteNotesAtBeat(strikeTick / RESOLUTION);
+        void pasteNotesAtStrikeTick(strikeTick);
         return;
       }
       if (e.key === "Escape") {
@@ -1027,7 +1027,7 @@ export function ChartEditor() {
       window.removeEventListener("keydown", onKey);
       stopCopyDrag();
     };
-  }, [setPlacementMode, toggleNote, copyNotesInRange, pasteNotesAtBeat]);
+  }, [setPlacementMode, toggleNote, copyNotesInRange, pasteNotesAtStrikeTick]);
 
   useEffect(() => {
     const tickCopyAutoScroll = () => {

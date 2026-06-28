@@ -1,7 +1,7 @@
 import type { ChartNote } from "../types/meta";
 import { laneColumnIndex } from "../types/meta";
 import { sortChartNotes } from "./chartNotes";
-import { beatToTick, RESOLUTION, snapBeat } from "./resolution";
+import { beatToTick, RESOLUTION, snapTick, tickToBeat } from "./resolution";
 
 export const NOTE_CLIPBOARD_MARKER = "drumeditor-notes";
 
@@ -13,7 +13,9 @@ export type NoteClipboardPayload = {
 };
 
 export function selectionFirstBeat(notes: ChartNote[]): number {
-  return Math.min(...notes.map((n) => n.Beat));
+  if (notes.length === 0) return 0;
+  const anchorTick = Math.min(...notes.map((n) => beatToTick(n.Beat)));
+  return tickToBeat(anchorTick);
 }
 
 export function viewportTickRange(
@@ -114,11 +116,20 @@ export function parseClipboard(text: string): NoteClipboardPayload | null {
   }
 }
 
+/** Place the anchor (first copied note) exactly on strikeTick. */
+export function pastePayloadAtStrikeTick(
+  payload: NoteClipboardPayload,
+  strikeTick: number
+): ChartNote[] {
+  const anchorTick = beatToTick(payload.anchorBeat);
+  return shiftNotes(payload.notes, tickToBeat(strikeTick - anchorTick));
+}
+
+/** @deprecated Use pastePayloadAtStrikeTick — kept for beat-based callers. */
 export function pastePayloadAtBeat(
   payload: NoteClipboardPayload,
   strikeBeat: number,
   snapTicks: number
 ): ChartNote[] {
-  const target = snapBeat(strikeBeat, snapTicks);
-  return shiftNotes(payload.notes, target - payload.anchorBeat);
+  return pastePayloadAtStrikeTick(payload, snapTick(beatToTick(strikeBeat), snapTicks));
 }

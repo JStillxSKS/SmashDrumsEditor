@@ -38,6 +38,7 @@ import {
   beatsEqual,
   clampPixelsPerTick,
   snapBeat,
+  snapTick,
 } from "../utils/resolution";
 import {
   clampPlaybackSpeed,
@@ -52,7 +53,7 @@ import {
   notesInSelectionRect,
   notesInTickRange,
   parseClipboard,
-  pastePayloadAtBeat,
+  pastePayloadAtStrikeTick,
   selectionFirstBeat,
   serializeClipboard,
   type NoteClipboardPayload,
@@ -154,7 +155,7 @@ type EditorState = {
     anchorCol: number,
     currentCol: number
   ) => Promise<number>;
-  pasteNotesAtBeat: (strikeBeat: number) => Promise<number>;
+  pasteNotesAtStrikeTick: (strikeTick: number) => Promise<number>;
   clearClipboardMessage: () => void;
 };
 
@@ -541,7 +542,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     return picked.length;
   },
 
-  pasteNotesAtBeat: async (strikeBeat) => {
+  pasteNotesAtStrikeTick: async (strikeTick) => {
     let payload = get().noteClipboard;
     if (!payload) {
       try {
@@ -559,11 +560,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
 
     const { difficulty, charts, snapTicks } = get();
-    const pasted = pastePayloadAtBeat(payload, strikeBeat, snapTicks);
+    const targetTick = snapTick(Math.max(0, strikeTick), snapTicks);
+    const pasted = pastePayloadAtStrikeTick(payload, targetTick);
     const merged = mergeNotes(charts[difficulty], pasted);
     set({
       charts: { ...charts, [difficulty]: merged },
-      clipboardMessage: `Pasted ${pasted.length} notes`,
+      scrollTick: targetTick,
+      clipboardMessage: `Pasted ${pasted.length} notes at strike`,
     });
     return pasted.length;
   },

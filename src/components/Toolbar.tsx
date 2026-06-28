@@ -39,6 +39,7 @@ export function Toolbar() {
     loadDrumsAudio,
     loadMeta,
     exportIndies,
+    exportingIndies,
     exportChart,
     setCurrentTime,
     setIsPlaying,
@@ -361,8 +362,13 @@ export function Toolbar() {
             }}
           />
         </label>
-        <button className="btn export-btn" onClick={() => void exportIndies()}>
-          Export .indies
+        <button
+          className="btn export-btn"
+          type="button"
+          disabled={exportingIndies}
+          onClick={() => void exportIndies()}
+        >
+          {exportingIndies ? "Exporting…" : "Export .indies"}
         </button>
         <button className="btn" onClick={() => void exportChart()}>
           Export CH chart + song.ini

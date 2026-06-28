@@ -7,7 +7,9 @@ function triggerDownload(blob: Blob, filename: string): void {
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
+  document.body.appendChild(link);
   link.click();
+  link.remove();
   URL.revokeObjectURL(url);
 }
 
@@ -36,12 +38,7 @@ export async function saveBlobFile(
   const api = window.electronAPI;
   if (api?.isDesktop) {
     const buffer = await blob.arrayBuffer();
-    const bytes = new Uint8Array(buffer);
-    let binary = "";
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]!);
-    }
-    const saved = await api.saveFile(relativePath, btoa(binary), "base64");
+    const saved = await api.saveBinaryFile(relativePath, new Uint8Array(buffer));
     return { method: "disk", path: saved.path, displayPath: saved.displayPath };
   }
   const filename = relativePath.split(/[/\\]/).pop() ?? relativePath;

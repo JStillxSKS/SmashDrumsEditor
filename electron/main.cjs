@@ -63,6 +63,14 @@ ipcMain.handle("output:save", (_event, { relativePath, data, encoding }) => {
   return { path: fullPath, displayPath: `output/${displayPath}` };
 });
 
+ipcMain.handle("output:saveBinary", (_event, { relativePath, bytes }) => {
+  const fullPath = resolveOutputPath(relativePath);
+  fs.writeFileSync(fullPath, Buffer.from(bytes));
+  const root = getOutputRoot();
+  const displayPath = path.relative(root, fullPath).split(path.sep).join("/");
+  return { path: fullPath, displayPath: `output/${displayPath}` };
+});
+
 app.whenReady().then(async () => {
   try {
     await ensureAppUrl();

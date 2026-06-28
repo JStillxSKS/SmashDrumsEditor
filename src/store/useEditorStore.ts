@@ -104,6 +104,7 @@ type EditorState = {
   pendingPhasePlacement: PhasePlacement;
   noteClipboard: NoteClipboardPayload | null;
   clipboardMessage: string | null;
+  exportingIndies: boolean;
 
   setMetaField: <K extends keyof MetaJson>(key: K, value: MetaJson[K]) => void;
   setBpm: (bpm: number) => void;
@@ -199,6 +200,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
   noteClipboard: null,
   clipboardMessage: null,
+  exportingIndies: false,
 
   setMetaField: (key, value) =>
     set((s) => ({ meta: { ...s.meta, [key]: value } })),
@@ -428,6 +430,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   exportIndies: async () => {
+    if (get().exportingIndies) return;
+
     const { meta, charts, audioFile, audioBuffer, coverImageFile } = get();
     const issues = validateIndiesCharts(charts);
     if (issues.length > 0) {
@@ -438,6 +442,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       window.alert("Load song audio before exporting an .indies package.");
       return;
     }
+
+    set({ exportingIndies: true });
     try {
       const blob = await buildIndiesZip({
         meta,
@@ -451,10 +457,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const where =
         result.method === "disk" ? result.displayPath : `Downloads (${result.filename})`;
       set({ clipboardMessage: `Exported ${where}` });
+      if (result.method === "disk") {
+        window.alert(`Exported ${where}\n\nUse "Open output" in the toolbar to find the file.`);
+      }
     } catch (err) {
       window.alert(
         err instanceof Error ? err.message : "Could not build .indies package."
       );
+    } finally {
+      set({ exportingIndies: false });
     }
   },
 

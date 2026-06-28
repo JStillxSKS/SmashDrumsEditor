@@ -86,7 +86,7 @@ function findNoteAtPoint(
     if (note.Id !== laneId) continue;
     const tick = beatToTick(note.Beat);
     const noteY = sy - (tick - scrollTick) * ppt;
-    const { h } = noteBoxSize(laneW, gridRowPx, note.Strength);
+    const { h } = noteBoxSize(laneW, gridRowPx);
     const halfH = h / 2 + 8;
     if (y < noteY - halfH || y > noteY + halfH) continue;
     const dist = Math.abs(y - noteY);
@@ -115,16 +115,11 @@ function lighten(hex: string, amt: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
-function noteBoxSize(laneW: number, rowPx: number, strength: 0 | 1 | 2) {
+function noteBoxSize(laneW: number, rowPx: number) {
   const pad = 4;
   const w = laneW - pad * 2;
   const maxH = Math.max(16, rowPx - pad * 2);
-  const h =
-    strength === 0
-      ? maxH * 0.58
-      : strength === 2
-        ? maxH * 0.94
-        : maxH * 0.78;
+  const h = maxH * 0.78;
   return { w, h, r: Math.min(6, h * 0.22) };
 }
 
@@ -148,7 +143,7 @@ function drawGemNote(
   rowPx: number,
   hitIntensity = 0
 ) {
-  const { w, h, r } = noteBoxSize(laneW, rowPx, strength);
+  const { w, h, r } = noteBoxSize(laneW, rowPx);
   const x = cx - w / 2;
   const y = cy - h / 2;
   const isCrystal = strength === 0;
@@ -277,7 +272,7 @@ function drawGemReceptor(
   rowPx: number,
   hitIntensity = 0
 ) {
-  const { w: noteW, h: noteH, r: noteR } = noteBoxSize(laneW, rowPx, 1);
+  const { w: noteW, h: noteH, r: noteR } = noteBoxSize(laneW, rowPx);
   const lineWidth = hitIntensity > 0 ? 3.5 + hitIntensity * 0.75 : 3.5;
   const gap = 2;
   const outset = gap + lineWidth / 2;

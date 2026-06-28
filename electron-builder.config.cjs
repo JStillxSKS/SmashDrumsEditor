@@ -18,7 +18,8 @@ module.exports = {
         arch: ["x64"],
       },
     ],
-    icon: "public/app-icon.jpg",
+    icon: "public/app-icon.ico",
     artifactName: "Smash-Drums-Editor-${version}-portable.exe",
+    signAndEditExecutable: false,
   },
 };

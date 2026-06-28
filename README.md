@@ -25,7 +25,7 @@ npm run desktop:dev
 
 **Windows shortcuts:** Run `Install Launchers.bat` once to create icon shortcuts in the project root. Batch files live in `launchers/`.
 
-**Portable app:** `npm run desktop:build` → `release/Smash-Drums-Editor-0.1.0-portable.exe`
+**Portable app:** Download [Smash-Drums-Editor-0.1.0-portable.exe](https://github.com/JStillxSKS/SmashDrumsEditor/releases/download/v0.1.0/Smash-Drums-Editor-0.1.0-portable.exe) (Windows x64, no install), or build with `npm run desktop:build`
 
 ## Features
 

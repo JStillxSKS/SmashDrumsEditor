@@ -32,7 +32,7 @@ The editor has three main areas:
 | **BPM** | Edit song tempo; **Detect** estimates BPM from loaded song audio |
 | **Song** | Load full mix audio (mp3, wav, ogg, flac, m4a, aac) |
 | **Drums** | Load isolated drums stem for charting |
-| **Import** | Load `.indie`, `.indies`, `meta.json`, or Clone Hero `.chart` |
+| **Import** | Load `.indies`, `meta.json`, or Clone Hero `.chart` |
 | **Export .indies** | Download a Smash Drums Indies package (meta, audio, cover, preview) |
 | **Export CH chart + song.ini** | Download Clone Hero chart and ini files |
 
@@ -122,7 +122,7 @@ When placing **timing anchors** or **song phases**, the highway enters placement
 
 ### Start from an Indies package
 
-1. Click **Import** and choose a `.indie` or `.indies` file
+1. Click **Import** and choose a `.indies` file
 2. Audio, cover art, metadata, and charts load automatically
 3. Select **Extreme** difficulty and chart your drums
 4. Adjust offset until hits line up with the waveform

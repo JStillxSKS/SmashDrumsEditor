@@ -4,9 +4,9 @@ Smash Drums Editor reads and writes several formats used by Smash Drums Indies c
 
 ## Import
 
-Use **Import** in the toolbar. Accepted extensions: `.indie`, `.indies`, `.json`, `.chart`
+Use **Import** in the toolbar. Accepted extensions: `.indies`, `.json`, `.chart`
 
-### `.indie` / `.indies` (Smash Drums Indies package)
+### `.indies` (Smash Drums Indies package)
 
 A ZIP archive containing:
 

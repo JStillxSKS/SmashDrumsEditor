@@ -147,7 +147,7 @@ export function sanitizeIndiesFilename(name: string): string {
 
 export function isIndiesFile(file: File): boolean {
   const lower = file.name.toLowerCase();
-  return lower.endsWith(".indies") || lower.endsWith(".indie");
+  return lower.endsWith(".indies");
 }
 
 export function isZipArchive(bytes: Uint8Array): boolean {

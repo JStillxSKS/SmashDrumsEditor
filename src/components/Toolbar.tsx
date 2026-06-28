@@ -346,12 +346,12 @@ export function Toolbar() {
         </label>
         <label
           className="file-btn"
-          title="Import .indie / .indies, meta.json, or Clone Hero .chart"
+          title="Import .indies, meta.json, or Clone Hero .chart"
         >
           📂 Import
           <input
             type="file"
-            accept=".indie,.indies,.json,.chart,application/json,application/zip"
+            accept=".indies,.json,.chart,application/json,application/zip"
             hidden
             onChange={(e) => {
               const f = e.target.files?.[0];

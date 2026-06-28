@@ -95,7 +95,7 @@ export function SidebarLeft() {
               title={coverImageFileName ?? "Album cover"}
             />
           ) : (
-            <p className="hint hint-inline">Loads from .indie / .indies or add manually</p>
+            <p className="hint hint-inline">Loads from .indies or add manually</p>
           )}
           <div className="btn-group cover-actions">
             <label className="btn cover-btn">

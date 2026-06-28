@@ -35,7 +35,7 @@ npm run desktop:dev
 - Note strengths: Crystal, Neutral, Burning
 - BPM editing, auto-detect, timing anchors, and song phases
 - Audio offset / silent lead-in
-- Import `.indie` / `.indies`, `meta.json`, or Clone Hero `.chart`
+- Import `.indies`, `meta.json`, or Clone Hero `.chart`
 - Export Smash Drums `.indies` packages or Clone Hero `notes.chart` + `song.ini`
 
 ## Disclaimer

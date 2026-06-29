@@ -27,7 +27,6 @@ import {
 import { RESOLUTION, beatToTick, formatTick } from "../utils/resolution";
 import { bpmFromAnchors } from "../utils/timing";
 import { beatToTime, timeToBeat } from "../utils/timing";
-import { pickImportFileDesktop } from "../utils/importFile";
 
 export function Toolbar() {
   const {
@@ -351,38 +350,22 @@ export function Toolbar() {
             }}
           />
         </label>
-        {window.electronAPI?.isDesktop ? (
-          <button
-            className="file-btn"
-            type="button"
-            title="Import .indies, .rlrr (Paradiddle), meta.json, or Clone Hero .chart"
-            onClick={() => {
-              void (async () => {
-                const file = await pickImportFileDesktop();
-                if (file) await loadMeta(file);
-              })();
+        <label
+          className="file-btn"
+          title="Import .indies, meta.json, or Clone Hero .chart"
+        >
+          📂 Import
+          <input
+            type="file"
+            accept=".indies,.json,.chart,application/json,application/zip"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void loadMeta(f);
+              e.target.value = "";
             }}
-          >
-            📂 Import
-          </button>
-        ) : (
-          <label
-            className="file-btn"
-            title="Import .indies, .rlrr (Paradiddle), meta.json, or Clone Hero .chart"
-          >
-            📂 Import
-            <input
-              type="file"
-              accept=".indies,.rlrr,.json,.chart,application/json,application/zip"
-              hidden
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void loadMeta(f);
-                e.target.value = "";
-              }}
-            />
-          </label>
-        )}
+          />
+        </label>
         <button
           className="btn export-btn"
           type="button"

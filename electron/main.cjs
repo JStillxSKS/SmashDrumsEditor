@@ -54,55 +54,6 @@ ipcMain.handle("output:getDir", () => getOutputRoot());
 
 ipcMain.handle("output:open", () => openOutputRoot());
 
-ipcMain.handle("import:pickFile", async () => {
-  const { canceled, filePaths } = await dialog.showOpenDialog({
-    title: "Import chart",
-    properties: ["openFile"],
-    filters: [
-      {
-        name: "Smash Drums / Paradiddle / Clone Hero",
-        extensions: ["indies", "rlrr", "json", "chart"],
-      },
-      { name: "All files", extensions: ["*"] },
-    ],
-  });
-  if (canceled || !filePaths?.[0]) return null;
-
-  const filePath = filePaths[0];
-  const data = fs.readFileSync(filePath);
-  return {
-    path: filePath,
-    name: path.basename(filePath),
-    bytes: Array.from(data),
-  };
-});
-
-ipcMain.handle("fs:readSibling", (_event, { sourceFilePath, siblingName }) => {
-  const dir = path.dirname(sourceFilePath);
-  const safeName = path.basename(String(siblingName));
-  const fullPath = path.join(dir, safeName);
-  if (!fs.existsSync(fullPath)) return null;
-
-  const ext = path.extname(safeName).toLowerCase();
-  const mimeByExt = {
-    ".mp3": "audio/mpeg",
-    ".ogg": "audio/ogg",
-    ".wav": "audio/wav",
-    ".flac": "audio/flac",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".png": "image/png",
-    ".webp": "image/webp",
-  };
-
-  const data = fs.readFileSync(fullPath);
-  return {
-    name: safeName,
-    bytes: Array.from(data),
-    mimeType: mimeByExt[ext] ?? "application/octet-stream",
-  };
-});
-
 ipcMain.handle("output:save", (_event, { relativePath, data, encoding }) => {
   const fullPath = resolveOutputPath(relativePath);
   const payload = encoding === "base64" ? Buffer.from(data, "base64") : String(data);

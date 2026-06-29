@@ -2,10 +2,11 @@
 setlocal
 cd /d "%~dp0.."
 set "RELEASE=%CD%\release"
+set "EXE=%RELEASE%\Smash-Drums-Editor-0.1.0-portable.exe"
 set "UNPACKED=%RELEASE%\win-unpacked\Smash Drums Editor.exe"
 
-for /f "delims=" %%E in ('dir /b /o-n "%RELEASE%\Smash-Drums-Editor-*-portable.exe" 2^>nul') do (
-  start "" "%RELEASE%\%%E"
+if exist "%EXE%" (
+  start "" "%EXE%"
   exit /b 0
 )
 if exist "%UNPACKED%" (

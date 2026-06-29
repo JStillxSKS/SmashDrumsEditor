@@ -15,16 +15,6 @@ declare global {
         bytes: Uint8Array
       ) => Promise<{ path: string; displayPath: string }>;
       openOutputDir: () => Promise<string>;
-      getFilePath: (file: File) => string;
-      pickImportFile: () => Promise<{
-        path: string;
-        name: string;
-        bytes: number[];
-      } | null>;
-      readSiblingFile: (
-        sourceFilePath: string,
-        siblingName: string
-      ) => Promise<{ name: string; bytes: number[]; mimeType: string } | null>;
     };
   }
 }

@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer, webUtils } = require("electron");
+const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
   isDesktop: true,
@@ -8,8 +8,4 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveBinaryFile: (relativePath, bytes) =>
     ipcRenderer.invoke("output:saveBinary", { relativePath, bytes }),
   openOutputDir: () => ipcRenderer.invoke("output:open"),
-  getFilePath: (file) => webUtils.getPathForFile(file),
-  pickImportFile: () => ipcRenderer.invoke("import:pickFile"),
-  readSiblingFile: (sourceFilePath, siblingName) =>
-    ipcRenderer.invoke("fs:readSibling", { sourceFilePath, siblingName }),
 });

@@ -154,7 +154,9 @@ export function SidebarRight() {
           <li><kbd>1-6</kbd><span className="control-label">Strike bar</span></li>
           <li><kbd>Click</kbd><span className="control-label">Seek (Caps off)</span></li>
           <li><kbd>Caps+Clk</kbd><span className="control-label">Place / erase note</span></li>
-          <li><kbd>C</kbd><span className="control-label">Copy mode — drag box</span></li>
+          <li><kbd>Shift+Drag</kbd><span className="control-label">Select notes</span></li>
+          <li><kbd>C</kbd><span className="control-label">Copy selected notes</span></li>
+          <li><kbd>Del</kbd><span className="control-label">Delete selected notes</span></li>
           <li><kbd>Ctrl+C</kbd><span className="control-label">Copy all visible notes</span></li>
           <li><kbd>Ctrl+V</kbd><span className="control-label">Paste — first note at strike bar</span></li>
           <li><kbd>Esc</kbd><span className="control-label">Cancel place</span></li>

@@ -156,6 +156,12 @@ type EditorState = {
     anchorCol: number,
     currentCol: number
   ) => Promise<number>;
+  deleteNotesInSelection: (
+    anchorTick: number,
+    currentTick: number,
+    anchorCol: number,
+    currentCol: number
+  ) => number;
   pasteNotesAtStrikeTick: (strikeTick: number) => Promise<number>;
   clearClipboardMessage: () => void;
 };
@@ -580,6 +586,30 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     } catch {
       // Internal buffer still works when system clipboard is blocked.
     }
+    return picked.length;
+  },
+
+  deleteNotesInSelection: (anchorTick, currentTick, anchorCol, currentCol) => {
+    const { difficulty, charts } = get();
+    const picked = notesInSelectionRect(
+      charts[difficulty],
+      anchorTick,
+      currentTick,
+      anchorCol,
+      currentCol
+    );
+    if (picked.length === 0) {
+      set({ clipboardMessage: "No notes in selection" });
+      return 0;
+    }
+    const toRemove = new Set(picked.map((n) => `${beatToTick(n.Beat)}:${n.Id}`));
+    const notes = charts[difficulty].filter(
+      (n) => !toRemove.has(`${beatToTick(n.Beat)}:${n.Id}`)
+    );
+    set({
+      charts: { ...charts, [difficulty]: notes },
+      clipboardMessage: `Deleted ${picked.length} notes`,
+    });
     return picked.length;
   },
 

@@ -1,6 +1,6 @@
 export type Difficulty = "easy" | "normal" | "hard" | "extreme";
 
-export type PlacementMode = "phase" | "anchor" | "copy" | null;
+export type PlacementMode = "phase" | "anchor" | null;
 
 export type ChartNote = {
   Beat: number;

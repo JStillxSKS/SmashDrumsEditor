@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChartNote, DrumId, SongPhase, TimingAnchor } from "../types/meta";
 import {
   DRUM_LANES,
@@ -37,11 +37,11 @@ const PHASE_BLINK_MS = 550;
 const NOTE_HIT_MS = 520;
 const LANE_HEADER_H = 44;
 const LANE_GAP = 6;
-const COPY_SCROLL_EDGE = 44;
-const COPY_SCROLL_MAX_TICKS = 18;
+const SELECTION_SCROLL_EDGE = 44;
+const SELECTION_SCROLL_MAX_TICKS = 18;
 
-type CopySelectionState = {
-  active: boolean;
+type NoteSelectionState = {
+  dragging: boolean;
   anchorTick: number;
   anchorCol: number;
   currentTick: number;
@@ -87,9 +87,9 @@ function pointerToChart(
   return { tick, col };
 }
 
-function drawCopySelectionBox(
+function drawNoteSelectionBox(
   ctx: CanvasRenderingContext2D,
-  selection: CopySelectionState,
+  selection: NoteSelectionState,
   scrollTick: number,
   w: number,
   h: number,
@@ -408,8 +408,13 @@ export function ChartEditor() {
   }>({ lastBeat: null, blinkPhase: null, blinkStart: 0 });
   /** Editor-only — note hit times keyed by noteHitKey */
   const noteHitRef = useRef<Map<string, number>>(new Map());
-  const copySelectionRef = useRef<CopySelectionState | null>(null);
-  const copyAutoScrollRef = useRef(0);
+  const noteSelectionRef = useRef<NoteSelectionState | null>(null);
+  const selectionAutoScrollRef = useRef(0);
+  const [, setSelectionRevision] = useState(0);
+  const bumpSelectionRevision = useCallback(
+    () => setSelectionRevision((revision) => revision + 1),
+    []
+  );
 
   const {
     meta,
@@ -435,6 +440,7 @@ export function ChartEditor() {
     placeAnchorAtBeat,
     copyNotesInRange,
     copyNotesInSelection,
+    deleteNotesInSelection,
     pasteNotesAtStrikeTick,
     clipboardMessage,
     clearClipboardMessage,
@@ -894,9 +900,9 @@ export function ChartEditor() {
         ctx.fillText(`♪ ${waveLabel}`, trackX + 8, h - 10);
       }
 
-      const selection = copySelectionRef.current;
-      if (placementMode === "copy" && selection?.active) {
-        drawCopySelectionBox(ctx, selection, scrollTick, w, h, ppt);
+      const selection = noteSelectionRef.current;
+      if (selection) {
+        drawNoteSelectionBox(ctx, selection, scrollTick, w, h, ppt);
       }
 
     };
@@ -947,10 +953,10 @@ export function ChartEditor() {
   }, [clipboardMessage, clearClipboardMessage]);
 
   useEffect(() => {
-    const stopCopyDrag = () => {
-      if (copyAutoScrollRef.current) {
-        cancelAnimationFrame(copyAutoScrollRef.current);
-        copyAutoScrollRef.current = 0;
+    const stopSelectionDrag = () => {
+      if (selectionAutoScrollRef.current) {
+        cancelAnimationFrame(selectionAutoScrollRef.current);
+        selectionAutoScrollRef.current = 0;
       }
     };
 
@@ -958,12 +964,17 @@ export function ChartEditor() {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
       const mod = e.ctrlKey || e.metaKey;
       if (!mod && e.key.toLowerCase() === "c") {
+        const selection = noteSelectionRef.current;
+        if (!selection || selection.dragging) return;
         const state = useEditorStore.getState();
-        if (state.isPlaying) return;
+        if (state.isPlaying || state.placementMode) return;
         e.preventDefault();
-        setPlacementMode(state.placementMode === "copy" ? null : "copy");
-        copySelectionRef.current = null;
-        stopCopyDrag();
+        void copyNotesInSelection(
+          selection.anchorTick,
+          selection.currentTick,
+          selection.anchorCol,
+          selection.currentCol
+        );
         return;
       }
       if (mod && e.key.toLowerCase() === "c") {
@@ -988,10 +999,29 @@ export function ChartEditor() {
         void pasteNotesAtStrikeTick(strikeTick);
         return;
       }
+      if (e.key === "Delete" || e.key === "Backspace") {
+        const selection = noteSelectionRef.current;
+        if (!selection || selection.dragging) return;
+        const state = useEditorStore.getState();
+        if (state.isPlaying || state.placementMode) return;
+        e.preventDefault();
+        const deleted = deleteNotesInSelection(
+          selection.anchorTick,
+          selection.currentTick,
+          selection.anchorCol,
+          selection.currentCol
+        );
+        if (deleted > 0) {
+          noteSelectionRef.current = null;
+          bumpSelectionRevision();
+        }
+        return;
+      }
       if (e.key === "Escape") {
         setPlacementMode(null);
-        copySelectionRef.current = null;
-        stopCopyDrag();
+        noteSelectionRef.current = null;
+        stopSelectionDrag();
+        bumpSelectionRevision();
         return;
       }
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
@@ -1025,36 +1055,48 @@ export function ChartEditor() {
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
-      stopCopyDrag();
+      stopSelectionDrag();
     };
-  }, [setPlacementMode, toggleNote, copyNotesInRange, pasteNotesAtStrikeTick]);
+  }, [
+    setPlacementMode,
+    toggleNote,
+    copyNotesInRange,
+    copyNotesInSelection,
+    deleteNotesInSelection,
+    pasteNotesAtStrikeTick,
+    bumpSelectionRevision,
+  ]);
 
   useEffect(() => {
-    const tickCopyAutoScroll = () => {
-      const selection = copySelectionRef.current;
+    const tickSelectionAutoScroll = () => {
+      const selection = noteSelectionRef.current;
       const canvas = canvasRef.current;
-      if (!selection?.active || !canvas) {
-        copyAutoScrollRef.current = 0;
+      if (!selection?.dragging || !canvas) {
+        selectionAutoScrollRef.current = 0;
         return;
       }
 
       const state = useEditorStore.getState();
-      if (state.isPlaying || state.placementMode !== "copy") {
-        copyAutoScrollRef.current = 0;
+      if (state.isPlaying) {
+        selectionAutoScrollRef.current = 0;
         return;
       }
 
       const rect = canvas.getBoundingClientRect();
       const h = rect.height;
       const sy = h - STRIKE_OFFSET;
-      const topEdge = LANE_HEADER_H + COPY_SCROLL_EDGE;
-      const bottomEdge = sy - COPY_SCROLL_EDGE;
+      const topEdge = LANE_HEADER_H + SELECTION_SCROLL_EDGE;
+      const bottomEdge = sy - SELECTION_SCROLL_EDGE;
       let delta = 0;
 
       if (selection.pointerY < topEdge) {
-        delta = Math.min(1, (topEdge - selection.pointerY) / COPY_SCROLL_EDGE) * COPY_SCROLL_MAX_TICKS;
+        delta =
+          Math.min(1, (topEdge - selection.pointerY) / SELECTION_SCROLL_EDGE) *
+          SELECTION_SCROLL_MAX_TICKS;
       } else if (selection.pointerY > bottomEdge) {
-        delta = -Math.min(1, (selection.pointerY - bottomEdge) / COPY_SCROLL_EDGE) * COPY_SCROLL_MAX_TICKS;
+        delta =
+          -Math.min(1, (selection.pointerY - bottomEdge) / SELECTION_SCROLL_EDGE) *
+          SELECTION_SCROLL_MAX_TICKS;
       }
 
       if (delta !== 0) {
@@ -1068,19 +1110,19 @@ export function ChartEditor() {
           h,
           state.pixelsPerTick
         );
-        copySelectionRef.current = {
+        noteSelectionRef.current = {
           ...selection,
           currentTick: chart.tick,
           currentCol: chart.col,
         };
       }
 
-      copyAutoScrollRef.current = requestAnimationFrame(tickCopyAutoScroll);
+      selectionAutoScrollRef.current = requestAnimationFrame(tickSelectionAutoScroll);
     };
 
     const onMove = (e: MouseEvent) => {
-      const selection = copySelectionRef.current;
-      if (!selection?.active) return;
+      const selection = noteSelectionRef.current;
+      if (!selection?.dragging) return;
 
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -1091,7 +1133,7 @@ export function ChartEditor() {
       const state = useEditorStore.getState();
       const chart = pointerToChart(x, y, state.scrollTick, rect.width, rect.height, state.pixelsPerTick);
 
-      copySelectionRef.current = {
+      noteSelectionRef.current = {
         ...selection,
         currentTick: chart.tick,
         currentCol: chart.col,
@@ -1099,27 +1141,22 @@ export function ChartEditor() {
         pointerY: y,
       };
 
-      if (!copyAutoScrollRef.current) {
-        copyAutoScrollRef.current = requestAnimationFrame(tickCopyAutoScroll);
+      if (!selectionAutoScrollRef.current) {
+        selectionAutoScrollRef.current = requestAnimationFrame(tickSelectionAutoScroll);
       }
     };
 
     const onUp = () => {
-      const selection = copySelectionRef.current;
-      if (!selection?.active) return;
+      const selection = noteSelectionRef.current;
+      if (!selection?.dragging) return;
 
-      if (copyAutoScrollRef.current) {
-        cancelAnimationFrame(copyAutoScrollRef.current);
-        copyAutoScrollRef.current = 0;
+      if (selectionAutoScrollRef.current) {
+        cancelAnimationFrame(selectionAutoScrollRef.current);
+        selectionAutoScrollRef.current = 0;
       }
 
-      copySelectionRef.current = null;
-      void copyNotesInSelection(
-        selection.anchorTick,
-        selection.currentTick,
-        selection.anchorCol,
-        selection.currentCol
-      );
+      noteSelectionRef.current = { ...selection, dragging: false };
+      bumpSelectionRevision();
     };
 
     window.addEventListener("mousemove", onMove);
@@ -1127,16 +1164,15 @@ export function ChartEditor() {
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
-      if (copyAutoScrollRef.current) {
-        cancelAnimationFrame(copyAutoScrollRef.current);
-        copyAutoScrollRef.current = 0;
+      if (selectionAutoScrollRef.current) {
+        cancelAnimationFrame(selectionAutoScrollRef.current);
+        selectionAutoScrollRef.current = 0;
       }
     };
-  }, [copyNotesInSelection]);
+  }, [bumpSelectionRevision]);
 
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (placementMode === "copy") {
-      if (e.button !== 0 || isPlaying) return;
+    if (e.shiftKey && e.button === 0 && !isPlaying) {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
@@ -1153,8 +1189,8 @@ export function ChartEditor() {
         rect.height,
         state.pixelsPerTick
       );
-      copySelectionRef.current = {
-        active: true,
+      noteSelectionRef.current = {
+        dragging: true,
         anchorTick: chart.tick,
         anchorCol: chart.col,
         currentTick: chart.tick,
@@ -1162,9 +1198,16 @@ export function ChartEditor() {
         pointerX: x,
         pointerY: y,
       };
+      bumpSelectionRevision();
       e.preventDefault();
       return;
     }
+
+    if (!e.shiftKey && noteSelectionRef.current) {
+      noteSelectionRef.current = null;
+      bumpSelectionRevision();
+    }
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -1228,9 +1271,10 @@ export function ChartEditor() {
       ? "mode-phase"
       : placementMode === "anchor"
         ? "mode-anchor"
-        : placementMode === "copy"
-          ? "mode-copy"
-          : "";
+        : "";
+
+  const hasNoteSelection =
+    noteSelectionRef.current !== null && !noteSelectionRef.current.dragging;
 
   return (
     <div className="chart-stage">
@@ -1240,10 +1284,16 @@ export function ChartEditor() {
           <div className="placement-hint">
             {placementMode === "phase"
               ? "Phase placement — click grid"
-              : placementMode === "anchor"
-                ? "Anchor placement — click grid"
-                : "Copy — drag a box around notes (auto-scrolls at edges)"}
+              : "Anchor placement — click grid"}
             <span className="placement-hint-key">Esc</span>
+          </div>
+        )}
+        {!placementMode && hasNoteSelection && (
+          <div className="placement-hint selection-hint">
+            Notes selected —
+            <span className="placement-hint-key">C</span> copy
+            <span className="placement-hint-key">Del</span> delete
+            <span className="placement-hint-key">Esc</span> clear
           </div>
         )}
         {clipboardMessage && !placementMode && (

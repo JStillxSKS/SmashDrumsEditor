@@ -46,3 +46,6 @@ Desktop.ini
 # Local upload / release helpers (not part of the app)
 upload-manifest.json
 github-push-*.json
+
+# Local-only dev files (not shipped in releases)
+.local/

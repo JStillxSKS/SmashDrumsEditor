@@ -17,7 +17,7 @@ import {
 
 import { validateIndiesCharts } from "../utils/chartNotes";
 import { buildChartText, isChartFile, parseChartFile } from "../utils/chartIO";
-import { saveBlobFile, saveTextFile } from "../utils/fileSave";
+import { openOutputFolder, saveBlobFile, saveTextFile } from "../utils/fileSave";
 import { buildSongIni } from "../utils/songIniIO";
 import {
   chartsFromMeta,
@@ -455,10 +455,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const base = sanitizeIndiesFilename(meta.NameSong || meta.NameArtist || "song");
       const result = await saveBlobFile(`${base}.indies`, blob);
       const where =
-        result.method === "disk" ? result.displayPath : `Downloads (${result.filename})`;
+        result.method === "disk" ? result.path : `Downloads (${result.filename})`;
       set({ clipboardMessage: `Exported ${where}` });
       if (result.method === "disk") {
-        window.alert(`Exported ${where}\n\nUse "Open output" in the toolbar to find the file.`);
+        await openOutputFolder();
+        window.alert(`Saved to:\n${result.path}`);
       }
     } catch (err) {
       window.alert(
@@ -489,9 +490,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       );
       const where =
         chartResult.method === "disk"
-          ? chartResult.displayPath.replace(/[/\\][^/\\]+$/, "/")
+          ? chartResult.path.replace(/[/\\][^/\\]+$/, "")
           : `${chartResult.method === "download" ? chartResult.filename : "notes.chart"} + ${iniResult.method === "download" ? iniResult.filename : "song.ini"}`;
       set({ clipboardMessage: `Exported ${where}` });
+      if (chartResult.method === "disk") {
+        await openOutputFolder();
+        window.alert(`Saved to:\n${where}`);
+      }
     } catch (err) {
       window.alert(err instanceof Error ? err.message : "Could not export chart.");
     }

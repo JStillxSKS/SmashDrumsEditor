@@ -58,17 +58,13 @@ ipcMain.handle("output:save", (_event, { relativePath, data, encoding }) => {
   const fullPath = resolveOutputPath(relativePath);
   const payload = encoding === "base64" ? Buffer.from(data, "base64") : String(data);
   fs.writeFileSync(fullPath, payload);
-  const desktop = app.getPath("desktop");
-  const displayPath = path.relative(desktop, fullPath).split(path.sep).join("/");
-  return { path: fullPath, displayPath };
+  return { path: fullPath, displayPath: fullPath };
 });
 
 ipcMain.handle("output:saveBinary", (_event, { relativePath, bytes }) => {
   const fullPath = resolveOutputPath(relativePath);
   fs.writeFileSync(fullPath, Buffer.from(bytes));
-  const desktop = app.getPath("desktop");
-  const displayPath = path.relative(desktop, fullPath).split(path.sep).join("/");
-  return { path: fullPath, displayPath };
+  return { path: fullPath, displayPath: fullPath };
 });
 
 app.whenReady().then(async () => {

@@ -2,8 +2,22 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { app, shell } = require("electron");
 
+function isTempPath(target) {
+  const normalized = path.normalize(target).toLowerCase();
+  return (
+    normalized.includes(`${path.sep}temp${path.sep}`) ||
+    normalized.includes(`${path.sep}tmp${path.sep}`) ||
+    normalized.endsWith(`${path.sep}temp`) ||
+    normalized.endsWith(`${path.sep}tmp`)
+  );
+}
+
 function getOutputRoot() {
-  return path.join(app.getPath("desktop"), "Smash Drums Editor", "output");
+  const root = path.join(app.getPath("desktop"), "Smash Drums Editor", "output");
+  if (isTempPath(root)) {
+    throw new Error("Refusing to save exports to a temp folder");
+  }
+  return root;
 }
 
 function ensureOutputRoot() {

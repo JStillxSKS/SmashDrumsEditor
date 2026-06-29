@@ -1,6 +1,6 @@
 param(
-  [string]$Tag = "v0.1.1",
-  [string]$ExePath = "$PSScriptRoot\..\release\Smash-Drums-Editor-0.1.1-portable.exe"
+  [string]$Tag = "v0.1.2",
+  [string]$ExePath = "$PSScriptRoot\..\release\Smash-Drums-Editor-0.1.2-portable.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,26 +19,21 @@ if (-not (Test-Path $ExePath)) {
 }
 
 $notes = @"
-## Smash Drums Editor v0.1.1
+## Smash Drums Editor v0.1.2
 
 Desktop chart editor for Smash Drums custom songs.
 
 ### Download
-Run **Smash-Drums-Editor-0.1.1-portable.exe** — no install required (Windows x64).
+Run **Smash-Drums-Editor-0.1.2-portable.exe** — no install required (Windows x64).
+
+### Critical fix
+- **Exports no longer save to Windows Temp** (portable EXE used to write next to a temp extract folder — files could vanish when temp was cleared)
+- Exports always go to **Desktop/Smash Drums Editor/output/**
+- After export, the output folder opens automatically and shows the full save path
 
 ### What's new since v0.1.0
-- Copy mode: press **C**, drag a box to select notes, auto-scroll at highway edges
-- Paste lands the first copied note exactly on the strike bar
-- Desktop exports save to **Desktop/Smash Drums Editor/output/**
-- Cannot place notes behind the strike bar; **Ctrl+C** only copies notes at or ahead of the bar
-- Copy box mode can still copy notes anywhere in the selection
-- Fixed .indies export hang and improved export feedback
-
-### Features
-- Visual highway editor with waveform overview
-- Six lanes, four difficulties, crystal/neutral/burning note strengths
-- Import .indies, meta.json, or Clone Hero .chart
-- Export .indies or Clone Hero chart + song.ini
+- Copy mode, paste-at-strike, strike-bar placement rules
+- Fixed .indies export hang
 
 ### From source
 
@@ -50,7 +45,7 @@ npm run desktop:dev
 
 & $gh release create $Tag $ExePath `
   --repo JStillxSKS/SmashDrumsEditor `
-  --title "Smash Drums Editor v0.1.1" `
+  --title "Smash Drums Editor v0.1.2" `
   --notes $notes
 
 Write-Host "Release published for $Tag"

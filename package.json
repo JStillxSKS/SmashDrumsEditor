@@ -1,6 +1,6 @@
 {
   "name": "smash-drums-editor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Desktop chart editor for Smash Drums custom songs",
   "author": "",
   "keywords": [
@@ -19,7 +19,7 @@
     "desktop:dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5174 && cross-env ELECTRON_START_URL=http://127.0.0.1:5174 electron .\"",
     "desktop:clean": "node scripts/clean-release.cjs",
     "create-icon": "node scripts/create-app-icon.cjs",
-    "desktop:build": "npm run build && node scripts/clean-release.cjs && electron-builder --win --config electron-builder.config.cjs",
+    "desktop:build": "npm run build && node scripts/clean-release.cjs && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --config electron-builder.config.cjs",
     "postinstall": "node scripts/ensure-electron.cjs"
   },
   "dependencies": {

@@ -25,7 +25,7 @@ npm run desktop:dev
 
 **Windows shortcuts:** Run `Install Launchers.bat` once to create icon shortcuts in the project root. Batch files live in `launchers/`.
 
-**Portable app:** Download [Smash-Drums-Editor-0.1.0-portable.exe](https://github.com/JStillxSKS/SmashDrumsEditor/releases/download/v0.1.0/Smash-Drums-Editor-0.1.0-portable.exe) (Windows x64, no install), or build with `npm run desktop:build`
+**Portable app:** Download [Smash-Drums-Editor-0.1.1-portable.exe](https://github.com/JStillxSKS/SmashDrumsEditor/releases/download/v0.1.1/Smash-Drums-Editor-0.1.1-portable.exe) (Windows x64, no install), or build with `npm run desktop:build`
 
 ## Features
 
@@ -36,7 +36,7 @@ npm run desktop:dev
 - BPM editing, auto-detect, timing anchors, and song phases
 - Audio offset / silent lead-in
 - Import `.indies`, `meta.json`, or Clone Hero `.chart`
-- Export Smash Drums `.indies` packages or Clone Hero `notes.chart` + `song.ini` to the `output/` folder (desktop app)
+- Export Smash Drums `.indies` packages or Clone Hero `notes.chart` + `song.ini` to `Desktop/Smash Drums Editor/output/` (desktop app)
 
 ## Disclaimer
 

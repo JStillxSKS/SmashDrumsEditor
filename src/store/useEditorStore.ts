@@ -489,7 +489,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       );
       const where =
         chartResult.method === "disk"
-          ? `output/${base}/`
+          ? chartResult.displayPath.replace(/[/\\][^/\\]+$/, "/")
           : `${chartResult.method === "download" ? chartResult.filename : "notes.chart"} + ${iniResult.method === "download" ? iniResult.filename : "song.ini"}`;
       set({ clipboardMessage: `Exported ${where}` });
     } catch (err) {

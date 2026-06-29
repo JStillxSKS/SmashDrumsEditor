@@ -3,10 +3,7 @@ const path = require("node:path");
 const { app, shell } = require("electron");
 
 function getOutputRoot() {
-  if (!app.isPackaged) {
-    return path.join(__dirname, "..", "output");
-  }
-  return path.join(path.dirname(process.execPath), "output");
+  return path.join(app.getPath("desktop"), "Smash Drums Editor", "output");
 }
 
 function ensureOutputRoot() {

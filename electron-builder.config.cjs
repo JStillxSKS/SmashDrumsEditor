@@ -6,6 +6,7 @@ const outputDir = path.join(__dirname, "release");
 module.exports = {
   appId: "com.smashdrums.editor",
   productName: "Smash Drums Editor",
+  forceCodeSigning: false,
   directories: {
     output: outputDir,
   },

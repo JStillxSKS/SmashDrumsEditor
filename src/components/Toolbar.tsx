@@ -31,6 +31,9 @@ import { beatToTime, timeToBeat } from "../utils/timing";
 import { pickImportFileDesktop } from "../utils/importFile";
 import { redoDepth, undoDepth } from "../store/history";
 
+const BPM_MIN = 40;
+const BPM_MAX = 300;
+
 export function Toolbar() {
   const [publishOpen, setPublishOpen] = useState(false);
   const {
@@ -67,6 +70,10 @@ export function Toolbar() {
     undo,
     redo,
   } = useEditorStore();
+
+  const committedBpm = bpmFromAnchors(meta.SongTiming);
+  const [bpmDraft, setBpmDraft] = useState(() => String(committedBpm));
+  const [bpmFocused, setBpmFocused] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const rafRef = useRef(0);
@@ -242,7 +249,23 @@ export function Toolbar() {
   };
 
   const tick = isPlaying ? beatToTick(timeToBeat(chartTime, meta.SongTiming)) : scrollTick;
-  const bpm = bpmFromAnchors(meta.SongTiming);
+
+  useEffect(() => {
+    if (!bpmFocused) {
+      setBpmDraft(String(committedBpm));
+    }
+  }, [committedBpm, bpmFocused]);
+
+  const commitBpmDraft = () => {
+    const parsed = Number(bpmDraft);
+    if (Number.isFinite(parsed) && parsed >= BPM_MIN && parsed <= BPM_MAX) {
+      setBpm(parsed);
+    } else {
+      setBpmDraft(String(committedBpm));
+    }
+    setBpmFocused(false);
+  };
+
   void historyVersion;
   const canUndo = undoDepth() > 0;
   const canRedo = redoDepth() > 0;
@@ -347,12 +370,32 @@ export function Toolbar() {
             <span className="toolbar-bpm-text">BPM</span>
             <input
               className="toolbar-bpm-input"
-              type="number"
-              min={40}
-              max={300}
-              step={1}
-              value={bpm}
-              onChange={(e) => setBpm(Number(e.target.value))}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              aria-label="Song BPM"
+              value={bpmDraft}
+              onFocus={() => {
+                setBpmFocused(true);
+                setBpmDraft(String(committedBpm));
+              }}
+              onChange={(e) => {
+                setBpmFocused(true);
+                setBpmDraft(e.target.value.replace(/[^\d]/g, ""));
+              }}
+              onBlur={() => commitBpmDraft()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitBpmDraft();
+                  e.currentTarget.blur();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setBpmDraft(String(committedBpm));
+                  setBpmFocused(false);
+                  e.currentTarget.blur();
+                }
+              }}
             />
           </label>
           <button

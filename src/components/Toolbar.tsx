@@ -89,9 +89,9 @@ export function Toolbar() {
     if (!canPlay) return;
     if (isPlaying) {
       cancelPendingAudioPlayback();
-      seekChartTime(useEditorStore.getState().currentTime);
       silentAudioStartedRef.current = false;
       setIsPlaying(false);
+      seekChartTime(useEditorStore.getState().currentTime);
     } else {
       seekToStrikeBar();
       const { currentTime: strikeChartTime, meta: m } = useEditorStore.getState();

@@ -18,13 +18,18 @@ export function syncAudioVolume(_audio: HTMLAudioElement | null, volume: number)
   editorAudioPlayer.setVolume(volume);
 }
 
+let playRequestGeneration = 0;
+
 /** Stop in-flight playback work (call on pause). */
 export function cancelPendingAudioPlayback(): void {
+  playRequestGeneration++;
   editorAudioPlayer.cancelPending();
 }
 
 export function playEditorAudioAt(audioTime: number): void {
+  const generation = playRequestGeneration;
   void resumeEditorAudio().then(() => {
+    if (generation !== playRequestGeneration) return;
     editorAudioPlayer.play(audioTime);
   });
 }

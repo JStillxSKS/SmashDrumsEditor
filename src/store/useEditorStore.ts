@@ -49,6 +49,7 @@ import { isRlrrFile, parseRlrrFile } from "../utils/paradiddleIO";
 import { loadSiblingFile } from "../utils/siblingFile";
 import {
   FIXED_PIXELS_PER_TICK,
+  RESOLUTION,
   beatToTick,
   beatsEqual,
   clampPixelsPerTick,
@@ -73,7 +74,7 @@ import {
 } from "../utils/noteClipboard";
 
 import {
-  anchorsFromBpm,
+  applyConstantBpmChange,
   beatToTime,
   sortTimingAnchors,
   timeToBeat,
@@ -291,27 +292,16 @@ export const useEditorStore = create<EditorState>((set, get) => {
   setBpm: (bpm) => {
     recordHistory("timing");
     set((s) => {
-      const sorted = sortTimingAnchors(s.meta.SongTiming);
-      const endBeat =
-        sorted.length > 2
-          ? sorted[sorted.length - 1].beat
-          : Math.max(
-              ...Object.values(s.charts).flatMap((notes) => notes.map((n) => n.Beat)),
-              4
-            );
-      const base = anchorsFromBpm(bpm);
-      const timing =
-        endBeat > 4
-          ? sortTimingAnchors([
-              ...base,
-              { beat: endBeat, timer: (endBeat * 60) / bpm },
-            ])
-          : base;
+      // Keep the strike bar on the same moment in the music (absolute time),
+      // and rewrite note beats so they stay locked to the audio after the grid change.
+      const strikeTime = beatToTime(s.scrollTick / RESOLUTION, s.meta.SongTiming);
+      const { meta, charts } = applyConstantBpmChange(s.meta, s.charts, bpm);
+      const nextScroll = Math.max(0, timeToBeat(strikeTime, meta.SongTiming) * RESOLUTION);
       return {
-        meta: {
-          ...s.meta,
-          SongTiming: timing,
-        },
+        meta,
+        charts,
+        scrollTick: nextScroll,
+        currentTime: strikeTime,
         bpmConfidence: null,
       };
     });
@@ -326,27 +316,14 @@ export const useEditorStore = create<EditorState>((set, get) => {
       const { bpm, confidence } = detectBpm(audioBuffer);
       recordHistory("timing");
       set((s) => {
-        const sorted = sortTimingAnchors(s.meta.SongTiming);
-        const endBeat =
-          sorted.length > 2
-            ? sorted[sorted.length - 1].beat
-            : Math.max(
-                ...Object.values(s.charts).flatMap((notes) => notes.map((n) => n.Beat)),
-                4
-              );
-        const base = anchorsFromBpm(bpm);
-        const timing =
-          endBeat > 4
-            ? sortTimingAnchors([
-                ...base,
-                { beat: endBeat, timer: (endBeat * 60) / bpm },
-              ])
-            : base;
+        const strikeTime = beatToTime(s.scrollTick / RESOLUTION, s.meta.SongTiming);
+        const { meta, charts } = applyConstantBpmChange(s.meta, s.charts, bpm);
+        const nextScroll = Math.max(0, timeToBeat(strikeTime, meta.SongTiming) * RESOLUTION);
         return {
-          meta: {
-            ...s.meta,
-            SongTiming: timing,
-          },
+          meta,
+          charts,
+          scrollTick: nextScroll,
+          currentTime: strikeTime,
           bpmDetecting: false,
           bpmConfidence: confidence,
         };

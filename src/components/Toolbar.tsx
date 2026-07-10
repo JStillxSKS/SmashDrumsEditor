@@ -310,8 +310,8 @@ export function Toolbar() {
           className="toolbar-bpm"
           title={
             bpmConfidence !== null
-              ? `Detect confidence ${Math.round(bpmConfidence * 100)}%`
-              : "Song BPM"
+              ? `Detect confidence ${Math.round(bpmConfidence * 100)}%. Changing BPM keeps notes locked to the audio.`
+              : "Song BPM — changing this rewrites note beats so hits stay on the same audio times"
           }
         >
           <label className="toolbar-bpm-label">

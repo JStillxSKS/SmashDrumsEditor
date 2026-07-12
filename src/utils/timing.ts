@@ -1,12 +1,4 @@
-import type {
-  ChartNote,
-  Difficulty,
-  MetaJson,
-  SongPhase,
-  TimingAnchor,
-} from "../types/meta";
-import { sortSongPhases } from "../types/meta";
-import { sortChartNotes } from "./chartNotes";
+import type { ChartNote, Difficulty, MetaJson, TimingAnchor } from "../types/meta";
 import { RESOLUTION } from "./resolution";
 
 export function sortTimingAnchors(anchors: TimingAnchor[]): TimingAnchor[] {
@@ -123,84 +115,35 @@ export function remapBeatAcrossTiming(
   return quantizeBeat(timeToBeat(time, newTiming));
 }
 
-function maxContentTime(
-  meta: Pick<MetaJson, "SongTiming" | "SongPhases">,
-  charts: Record<Difficulty, ChartNote[]>
-): number {
-  const timing = sortTimingAnchors(meta.SongTiming);
-  let max = 0;
-  for (const phase of meta.SongPhases) {
-    max = Math.max(max, beatToTime(phase.beat, timing));
-  }
-  for (const notes of Object.values(charts)) {
-    for (const note of notes) {
-      max = Math.max(max, beatToTime(note.Beat, timing));
-    }
-  }
-  for (const anchor of timing) {
-    max = Math.max(max, anchor.timer);
-  }
-  return max;
-}
-
 /**
- * Apply a new constant BPM while keeping notes/phases on the same absolute times.
- * Beat numbers are rewritten so they stay locked to the audio after the grid change.
+ * Apply a new constant whole-number BPM.
+ *
+ * Notes and phases keep their beat numbers (grid-locked). Only the tempo map
+ * changes, so hits move with the grid relative to the audio — the usual way to
+ * fix "lines up at the start, drifts a notch by the end".
+ *
+ * Smash / Indies expect integer BPM; fractional tempos are not used.
  */
 export function applyConstantBpmChange(
   meta: MetaJson,
   charts: Record<Difficulty, ChartNote[]>,
   bpm: number
-): { meta: MetaJson; charts: Record<Difficulty, ChartNote[]> } {
+): { meta: MetaJson; charts: Record<Difficulty, ChartNote[]>; changed: boolean } {
   const whole = normalizeSongBpm(bpm);
   const oldTiming = sortTimingAnchors(meta.SongTiming);
-  if (oldTiming.length < 2) {
-    return {
-      meta: { ...meta, SongTiming: buildConstantBpmTiming(whole, 4) },
-      charts,
-    };
+
+  if (oldTiming.length >= 2 && bpmFromAnchors(oldTiming) === whole) {
+    // Already this integer BPM — do not rebuild anchors (avoids tiny timer jitter).
+    return { meta, charts, changed: false };
   }
 
-  const oldBpm = bpmFromAnchors(oldTiming);
-  const contentTime = maxContentTime(meta, charts);
-  const endBeat = Math.max(4, quantizeBeat((contentTime * whole) / 60) + 4);
+  const endBeat = Math.max(4, quantizeBeat(maxContentBeat(meta, charts) + 4));
   const newTiming = buildConstantBpmTiming(whole, endBeat);
 
-  // No charted content yet — only swap the tempo map.
-  const hasContent =
-    meta.SongPhases.some((p) => p.beat > 0) ||
-    Object.values(charts).some((notes) => notes.length > 0);
-
-  if (!hasContent || oldBpm === whole) {
-    return {
-      meta: { ...meta, SongTiming: newTiming },
-      charts,
-    };
-  }
-
-  const mapBeat = (beat: number) => remapBeatAcrossTiming(beat, oldTiming, newTiming);
-
-  const nextCharts: Record<Difficulty, ChartNote[]> = {
-    easy: sortChartNotes(charts.easy.map((n) => ({ ...n, Beat: mapBeat(n.Beat) }))),
-    normal: sortChartNotes(charts.normal.map((n) => ({ ...n, Beat: mapBeat(n.Beat) }))),
-    hard: sortChartNotes(charts.hard.map((n) => ({ ...n, Beat: mapBeat(n.Beat) }))),
-    extreme: sortChartNotes(charts.extreme.map((n) => ({ ...n, Beat: mapBeat(n.Beat) }))),
-  };
-
-  const nextPhases: SongPhase[] = sortSongPhases(
-    meta.SongPhases.map((phase) => ({
-      ...phase,
-      beat: mapBeat(phase.beat),
-    }))
-  );
-
   return {
-    meta: {
-      ...meta,
-      SongTiming: newTiming,
-      SongPhases: nextPhases,
-    },
-    charts: nextCharts,
+    meta: { ...meta, SongTiming: newTiming },
+    charts,
+    changed: true,
   };
 }
 

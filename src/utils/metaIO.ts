@@ -139,17 +139,66 @@ export function downloadMetaJson(meta: MetaJson, filename = "meta.json"): void {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Normalize imported SongTiming + offset into editor form:
+ * - beat 0 always at timer 0
+ * - lead-in lives in SongOffsetSeconds
+ *
+ * Other tools disagree on layout:
+ * - Indies export style: offset baked into SongTiming[0].timer, SongOffsetSeconds = 0
+ * - Editor / some packs: SongTiming starts at 0, offset only in SongOffsetSeconds
+ *
+ * Always unbaking by SongOffsetSeconds when timer is already 0 corrupts the tempo map
+ * (every later anchor loses that many seconds → BPM looks wrong / "anchors don't work").
+ */
+export function normalizeImportedTiming(
+  timing: TimingAnchor[],
+  declaredOffsetSeconds: number
+): { timing: TimingAnchor[]; offset: number } {
+  const sorted = sortTimingAnchors(timing);
+  if (sorted.length === 0) {
+    return {
+      timing: [
+        { beat: 0, timer: 0 },
+        { beat: 4, timer: 2 },
+      ],
+      offset: Math.max(0, declaredOffsetSeconds),
+    };
+  }
+
+  const declared = Math.max(0, declaredOffsetSeconds);
+  const first = sorted[0];
+  const firstTimer = first.beat === 0 ? first.timer : 0;
+
+  // Already editor-style: beat 0 at t=0. Keep anchors; offset is separate.
+  if (first.beat === 0 && firstTimer <= 1e-9) {
+    const cleaned = sorted.map((a, i) =>
+      i === 0 && a.beat === 0 ? { ...a, timer: 0 } : a
+    );
+    return { timing: cleaned, offset: declared };
+  }
+
+  // Offset is baked into absolute timers (common on .indies from export / other tools).
+  const baked = first.beat === 0 ? firstTimer : 0;
+  const offset = declared > 1e-9 ? declared : baked;
+  const unbakeBy = baked > 1e-9 ? baked : offset;
+  return {
+    timing: unbakeOffsetFromTiming(sorted, unbakeBy),
+    offset,
+  };
+}
+
 export function parseMetaJson(raw: string): MetaJson {
   const data = JSON.parse(raw) as Partial<MetaJson>;
   const base = createEmptyMeta();
-  const timing =
+  const rawTiming =
     data.SongTiming && data.SongTiming.length >= 2
       ? sortTimingAnchors(data.SongTiming)
       : base.SongTiming;
-  const songOffset = getSongOffset({
-    SongOffsetSeconds: data.SongOffsetSeconds ?? 0,
-    SongTiming: timing,
-  });
+  const { timing, offset } = normalizeImportedTiming(
+    rawTiming,
+    data.SongOffsetSeconds ?? 0
+  );
 
   return {
     NameArtist: data.NameArtist ?? base.NameArtist,
@@ -157,8 +206,8 @@ export function parseMetaJson(raw: string): MetaJson {
     NameCharter: data.NameCharter ?? base.NameCharter,
     IndiesDbMapId: data.IndiesDbMapId?.trim() || undefined,
     FilePath: data.FilePath ?? "",
-    SongOffsetSeconds: songOffset,
-    SongTiming: unbakeOffsetFromTiming(timing, songOffset),
+    SongOffsetSeconds: offset,
+    SongTiming: timing,
     SongPhases:
       data.SongPhases && data.SongPhases.length >= 1
         ? sortSongPhases(data.SongPhases.map(normalizeSongPhase))

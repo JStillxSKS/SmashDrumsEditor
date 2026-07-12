@@ -229,8 +229,31 @@ body {
   box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
-.toolbar-bpm-detect {
+.toolbar-bpm-sync,
+.toolbar-bpm-tap {
   white-space: nowrap;
+}
+
+.toolbar-bpm--tapping {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: var(--radius-sm);
+  padding-right: 6px;
+}
+
+.toolbar-bpm-tap.is-active {
+  background: color-mix(in srgb, var(--accent) 35%, #000);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.toolbar-bpm-tap-hint {
+  font-size: 0.68rem;
+  font-family: "JetBrains Mono", monospace;
+  color: var(--accent);
+  white-space: nowrap;
+  max-width: 7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ── Workspace ── */

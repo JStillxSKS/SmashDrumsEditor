@@ -75,7 +75,7 @@ export function resyncAfterTimingChange(): void {
   const state = useEditorStore.getState();
   if (state.isPlaying) {
     const offset = getSongOffset(state.meta);
-    const chartTime = isPlaybackAudible()
+    const chartTime = editorAudioPlayer.isPlaying()
       ? getPlaybackAudioTime() + offset
       : state.currentTime;
     seekChartTime(chartTime);

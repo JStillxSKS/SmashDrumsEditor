@@ -3,9 +3,9 @@ import { laneColumnIndex } from "../types/meta";
 import { useEditorStore } from "../store/useEditorStore";
 import {
   getPlaybackAudioTime,
-  isPlaybackAudible,
   seekChartTime,
 } from "../utils/audioElement";
+import { editorAudioPlayer } from "../utils/editorAudioPlayer";
 import { getSongOffset } from "../utils/offset";
 import { beatToTick, RESOLUTION } from "../utils/resolution";
 import { songExtentTicks } from "../utils/songExtent";
@@ -116,7 +116,7 @@ export function SongOverview() {
       const offset = getSongOffset(state.meta);
 
       let chartTime = state.currentTime;
-      if (state.isPlaying && isPlaybackAudible()) {
+      if (state.isPlaying && editorAudioPlayer.isPlaying()) {
         chartTime = getPlaybackAudioTime() + offset;
       }
 
@@ -279,7 +279,7 @@ export function SongOverview() {
       const timing = state.meta.SongTiming;
       const offset = getSongOffset(state.meta);
       let chartTime = state.currentTime;
-      if (state.isPlaying && isPlaybackAudible()) {
+      if (state.isPlaying && editorAudioPlayer.isPlaying()) {
         chartTime = getPlaybackAudioTime() + offset;
       }
 

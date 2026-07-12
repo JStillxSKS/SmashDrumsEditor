@@ -23,10 +23,10 @@ import {
 } from "../utils/resolution";
 import {
   getPlaybackAudioTime,
-  isPlaybackAudible,
   seekChartTime,
   seekScrollTick,
 } from "../utils/audioElement";
+import { editorAudioPlayer } from "../utils/editorAudioPlayer";
 import { playDrumHit } from "../utils/drumHits";
 import { getSongOffset, isInSilentLeadIn } from "../utils/offset";
 import { beatToTime, timeToBeat } from "../utils/timing";
@@ -395,7 +395,7 @@ function scrollTickAtClick(): number {
   if (!isPlaying) return storeScroll;
 
   let chartTime = currentTime;
-  if (isPlaybackAudible()) {
+  if (isPlaying && editorAudioPlayer.isPlaying()) {
     chartTime = getPlaybackAudioTime() + getSongOffset(meta);
   }
   return timeToBeat(chartTime, meta.SongTiming) * RESOLUTION;
@@ -522,8 +522,10 @@ export function ChartEditor() {
       const playing = state.isPlaying;
       const offset = getSongOffset(state.meta);
       // Smooth scroll: sample audio every rAF frame, not timeupdate (~4 Hz)
+      // Prefer the live Web Audio clock while the buffer source is running so
+      // the grid never lags the song by a frame (or freezes when muted briefly).
       let chartTime = state.currentTime;
-      if (playing && isPlaybackAudible()) {
+      if (playing && editorAudioPlayer.isPlaying()) {
         chartTime = getPlaybackAudioTime() + offset;
       }
 

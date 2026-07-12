@@ -29,7 +29,7 @@ The editor has three main areas:
 | **Song / Drums** | Switch which loaded audio track drives playback |
 | **Timecode** | Shows audio time and chart time at the strike bar |
 | **Start** | Jump to beat 0 |
-| **BPM** | Edit song tempo; **Detect** estimates BPM from loaded song audio |
+| **BPM** | Whole-number song tempo. **Sync** estimates BPM from audio; **Tap** (or key `T`) locks tempo by tapping beats while playing |
 | **Song** | Load full mix audio (mp3, wav, ogg, flac, m4a, aac) |
 | **Drums** | Load isolated drums stem for charting |
 | **Import** | Load `.indies`, `meta.json`, or Clone Hero `.chart` |
@@ -132,7 +132,7 @@ When placing **timing anchors** or **song phases**, the highway enters placement
 ### Start from scratch
 
 1. Load **Song** audio (and optionally **Drums** stem)
-2. Click **Detect** or set BPM manually
+2. Click **Sync** (from audio), use **Tap** / `T` on the beat while playing, or set BPM manually
 3. Set artist, title, and charter in the left sidebar
 4. Add album art if desired
 5. Chart on **Extreme** first (required for export), then copy patterns to other difficulties as needed

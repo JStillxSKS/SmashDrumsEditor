@@ -72,10 +72,19 @@ import {
   serializeClipboard,
   type NoteClipboardPayload,
 } from "../utils/noteClipboard";
+import {
+  estimateBpmFromTapTimes,
+  offsetDeltaToSnapTapToBeat,
+  TAP_TEMPO_MAX_TAPS,
+  TAP_TEMPO_MIN_TAPS,
+  type TapTempoEstimate,
+} from "../utils/tapTempo";
+import { getSongOffset } from "../utils/offset";
 
 import {
   applyConstantBpmChange,
   beatToTime,
+  bpmFromAnchors,
   sortTimingAnchors,
   timeToBeat,
 } from "../utils/timing";
@@ -122,6 +131,9 @@ type EditorState = {
   isPlaying: boolean;
   bpmDetecting: boolean;
   bpmConfidence: number | null;
+  /** Tap-to-sync: chart times of registered taps */
+  tapTempoActive: boolean;
+  tapTempoTimes: number[];
   placementMode: PlacementMode;
   pendingPhasePlacement: PhasePlacement;
   noteClipboard: NoteClipboardPayload | null;
@@ -137,7 +149,17 @@ type EditorState = {
   redo: () => void;
   setMetaField: <K extends keyof MetaJson>(key: K, value: MetaJson[K]) => void;
   setBpm: (bpm: number) => void;
+  /** Detect whole BPM from song audio and apply (grid-locked notes). */
   detectBpmFromAudio: () => Promise<number | null>;
+  /** Alias of detect — “Sync BPM from audio”. */
+  syncBpmFromAudio: () => Promise<number | null>;
+  startTapTempo: () => void;
+  cancelTapTempo: () => void;
+  /** Register a tap at current chart time; returns live estimate. */
+  registerTapTempo: (chartTime?: number) => TapTempoEstimate | null;
+  /** Apply whole BPM from taps; snaps first tap to nearest beat via offset. */
+  commitTapTempo: (snapOffsetToFirstTap?: boolean) => number | null;
+  getTapTempoEstimate: () => TapTempoEstimate | null;
   setDifficulty: (d: Difficulty) => void;
   setSelectedLane: (lane: 0 | 1 | 2 | 3 | 4 | 5) => void;
   setStrength: (s: 0 | 1 | 2) => void;
@@ -249,6 +271,8 @@ export const useEditorStore = create<EditorState>((set, get) => {
   isPlaying: false,
   bpmDetecting: false,
   bpmConfidence: null,
+  tapTempoActive: false,
+  tapTempoTimes: [],
   placementMode: null,
   pendingPhasePlacement: {
     phase: 2,
@@ -290,49 +314,176 @@ export const useEditorStore = create<EditorState>((set, get) => {
   },
 
   setBpm: (bpm) => {
+    const state = get();
+    const { meta, charts, changed } = applyConstantBpmChange(state.meta, state.charts, bpm);
+    if (!changed) return;
     recordHistory("timing");
-    set((s) => {
-      // Keep the strike bar on the same moment in the music (absolute time),
-      // and rewrite note beats so they stay locked to the audio after the grid change.
-      const strikeTime = beatToTime(s.scrollTick / RESOLUTION, s.meta.SongTiming);
-      const { meta, charts } = applyConstantBpmChange(s.meta, s.charts, bpm);
-      const nextScroll = Math.max(0, timeToBeat(strikeTime, meta.SongTiming) * RESOLUTION);
-      return {
-        meta,
-        charts,
-        scrollTick: nextScroll,
-        currentTime: strikeTime,
-        bpmConfidence: null,
-      };
+    // Notes stay on the same beats; keep the strike bar on that beat while
+    // the tempo map retimes relative to the audio (integer BPM only).
+    const strikeBeat = state.scrollTick / RESOLUTION;
+    const nextTime = beatToTime(strikeBeat, meta.SongTiming);
+    set({
+      meta,
+      charts,
+      currentTime: nextTime,
+      bpmConfidence: null,
     });
   },
 
   detectBpmFromAudio: async () => {
     const { audioBuffer } = get();
     if (!audioBuffer) return null;
-    set({ bpmDetecting: true });
+    set({ bpmDetecting: true, tapTempoActive: false, tapTempoTimes: [] });
     try {
       await new Promise((r) => setTimeout(r, 0));
       const { bpm, confidence } = detectBpm(audioBuffer);
-      recordHistory("timing");
-      set((s) => {
-        const strikeTime = beatToTime(s.scrollTick / RESOLUTION, s.meta.SongTiming);
-        const { meta, charts } = applyConstantBpmChange(s.meta, s.charts, bpm);
-        const nextScroll = Math.max(0, timeToBeat(strikeTime, meta.SongTiming) * RESOLUTION);
-        return {
-          meta,
-          charts,
-          scrollTick: nextScroll,
-          currentTime: strikeTime,
+      const state = get();
+      const prevBpm = bpmFromAnchors(state.meta.SongTiming);
+      const { meta, charts, changed } = applyConstantBpmChange(state.meta, state.charts, bpm);
+      if (!changed) {
+        set({
           bpmDetecting: false,
           bpmConfidence: confidence,
-        };
+          clipboardMessage: `BPM Sync: already ${bpm} (confidence ${Math.round(confidence * 100)}%)`,
+        });
+        return bpm;
+      }
+      recordHistory("timing");
+      const strikeBeat = state.scrollTick / RESOLUTION;
+      const nextTime = beatToTime(strikeBeat, meta.SongTiming);
+      set({
+        meta,
+        charts,
+        currentTime: nextTime,
+        bpmDetecting: false,
+        bpmConfidence: confidence,
+        clipboardMessage: `BPM Sync: ${prevBpm} → ${bpm} (confidence ${Math.round(confidence * 100)}%) — notes stayed on beats`,
       });
       return bpm;
     } catch {
-      set({ bpmDetecting: false, bpmConfidence: null });
+      set({
+        bpmDetecting: false,
+        bpmConfidence: null,
+        clipboardMessage: "BPM Sync failed — try Tap instead",
+      });
       return null;
     }
+  },
+
+  syncBpmFromAudio: async () => get().detectBpmFromAudio(),
+
+  startTapTempo: () => {
+    set({
+      tapTempoActive: true,
+      tapTempoTimes: [],
+      clipboardMessage: `Tap tempo: hit T on beats (${TAP_TEMPO_MIN_TAPS}+ taps), Enter to apply, Esc to cancel`,
+    });
+  },
+
+  cancelTapTempo: () => {
+    if (!get().tapTempoActive && get().tapTempoTimes.length === 0) return;
+    set({
+      tapTempoActive: false,
+      tapTempoTimes: [],
+      clipboardMessage: "Tap tempo cancelled",
+    });
+  },
+
+  getTapTempoEstimate: () => estimateBpmFromTapTimes(get().tapTempoTimes),
+
+  registerTapTempo: (chartTime) => {
+    const state = get();
+    if (!state.tapTempoActive) {
+      set({
+        tapTempoActive: true,
+        tapTempoTimes: [],
+        clipboardMessage: `Tap tempo: hit T on beats (${TAP_TEMPO_MIN_TAPS}+ taps), Enter to apply, Esc to cancel`,
+      });
+    }
+
+    let t = chartTime;
+    if (t === undefined) {
+      if (state.isPlaying && editorAudioPlayer.isPlaying()) {
+        t = editorAudioPlayer.getAudioTime() + getSongOffset(state.meta);
+      } else {
+        t = state.currentTime;
+      }
+    }
+
+    const prev = get().tapTempoTimes;
+    // Ignore accidental double-taps at nearly the same chart time
+    if (prev.length > 0 && Math.abs(t - prev[prev.length - 1]) < 0.12) {
+      return estimateBpmFromTapTimes(prev);
+    }
+
+    const next = [...prev, t].slice(-TAP_TEMPO_MAX_TAPS);
+    const estimate = estimateBpmFromTapTimes(next);
+    const hint = estimate?.ready
+      ? `Tap ${next.length}: ~${estimate.bpm} BPM — Enter to apply`
+      : `Tap ${next.length}/${TAP_TEMPO_MIN_TAPS}: keep tapping on the beat`;
+    set({
+      tapTempoActive: true,
+      tapTempoTimes: next,
+      clipboardMessage: hint,
+    });
+    return estimate;
+  },
+
+  commitTapTempo: (snapOffsetToFirstTap = true) => {
+    const state = get();
+    const estimate = estimateBpmFromTapTimes(state.tapTempoTimes);
+    if (!estimate?.ready) {
+      set({
+        clipboardMessage: `Tap tempo: need at least ${TAP_TEMPO_MIN_TAPS} taps on the beat`,
+      });
+      return null;
+    }
+
+    const bpm = estimate.bpm;
+    const firstTap = state.tapTempoTimes[0];
+    const { meta, charts, changed } = applyConstantBpmChange(state.meta, state.charts, bpm);
+
+    let nextMeta = meta;
+    let offsetNote = "";
+
+    if (snapOffsetToFirstTap && firstTap !== undefined) {
+      const spb = 60 / bpm;
+      const beatAtTap = timeToBeat(firstTap, meta.SongTiming);
+      const delta = offsetDeltaToSnapTapToBeat(firstTap, beatAtTap, spb);
+      if (Math.abs(delta) > 0.0005 && Math.abs(delta) < 2) {
+        const nextOffset = Math.max(
+          0,
+          Math.round((getSongOffset(meta) + delta) * 1000) / 1000
+        );
+        nextMeta = { ...meta, SongOffsetSeconds: nextOffset };
+        offsetNote = ` · offset ${Math.round(nextOffset * 1000)} ms`;
+      }
+    }
+
+    const offsetChanged =
+      Math.abs(getSongOffset(nextMeta) - getSongOffset(state.meta)) > 0.0005;
+    if (!changed && !offsetChanged) {
+      set({
+        tapTempoActive: false,
+        tapTempoTimes: [],
+        clipboardMessage: `Tap Sync: already ${bpm} BPM`,
+      });
+      return bpm;
+    }
+
+    recordHistory("timing");
+    const strikeBeat = state.scrollTick / RESOLUTION;
+    const nextTime = beatToTime(strikeBeat, nextMeta.SongTiming);
+    set({
+      meta: nextMeta,
+      charts: changed ? charts : state.charts,
+      currentTime: nextTime,
+      bpmConfidence: null,
+      tapTempoActive: false,
+      tapTempoTimes: [],
+      clipboardMessage: `Tap Sync: ${bpm} BPM (${estimate.tapCount} taps${offsetNote})`,
+    });
+    return bpm;
   },
 
   setDifficulty: (difficulty) => set({ difficulty }),

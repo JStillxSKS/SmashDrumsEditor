@@ -61,7 +61,14 @@ export function Toolbar() {
     bpmDetecting,
     bpmConfidence,
     setBpm,
-    detectBpmFromAudio,
+    syncBpmFromAudio,
+    tapTempoActive,
+    tapTempoTimes,
+    startTapTempo,
+    cancelTapTempo,
+    registerTapTempo,
+    commitTapTempo,
+    getTapTempoEstimate,
     historyVersion,
     undo,
     redo,
@@ -70,6 +77,7 @@ export function Toolbar() {
   const committedBpm = bpmFromAnchors(meta.SongTiming);
   const [bpmDraft, setBpmDraft] = useState(() => String(committedBpm));
   const [bpmFocused, setBpmFocused] = useState(false);
+  const tapEstimate = tapTempoActive ? getTapTempoEstimate() : null;
 
   const rafRef = useRef(0);
   const lastFrameRef = useRef(0);
@@ -88,10 +96,16 @@ export function Toolbar() {
   const togglePlay = () => {
     if (!canPlay) return;
     if (isPlaying) {
+      // Capture live audio clock before stopping — store currentTime can lag a frame.
+      const state = useEditorStore.getState();
+      const off = getSongOffset(state.meta);
+      const liveChartTime = editorAudioPlayer.isPlaying()
+        ? editorAudioPlayer.getAudioTime() + off
+        : state.currentTime;
       cancelPendingAudioPlayback();
       silentAudioStartedRef.current = false;
       setIsPlaying(false);
-      seekChartTime(useEditorStore.getState().currentTime);
+      seekChartTime(liveChartTime);
     } else {
       seekToStrikeBar();
       const { currentTime: strikeChartTime, meta: m } = useEditorStore.getState();
@@ -148,8 +162,14 @@ export function Toolbar() {
           editorAudioPlayer.setMuted(false);
           playEditorAudioAt(0);
         }
-      } else if (editorAudioPlayer.isAudible()) {
+      } else if (editorAudioPlayer.isPlaying()) {
+        // Sample the Web Audio clock every frame (not store lag / media timeupdate).
         setCurrentTime(editorAudioPlayer.getAudioTime() + off);
+      } else if (!silentAudioStartedRef.current) {
+        // Past lead-in but source not running yet (e.g. async resume).
+        silentAudioStartedRef.current = true;
+        editorAudioPlayer.setMuted(false);
+        playEditorAudioAt(Math.max(0, ct - off));
       }
 
       rafRef.current = requestAnimationFrame(loop);
@@ -162,6 +182,25 @@ export function Toolbar() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+
+      // Tap tempo: T = register beat, Enter = apply, Esc = cancel
+      if (e.key === "t" || e.key === "T") {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        e.preventDefault();
+        registerTapTempo();
+        return;
+      }
+      if (tapTempoActive && e.key === "Enter") {
+        e.preventDefault();
+        commitTapTempo(true);
+        return;
+      }
+      if (tapTempoActive && e.key === "Escape") {
+        e.preventDefault();
+        cancelTapTempo();
+        return;
+      }
+
       if (e.code === "Space") {
         e.preventDefault();
         togglePlay();
@@ -207,7 +246,12 @@ export function Toolbar() {
   const commitBpmDraft = () => {
     const parsed = Number(bpmDraft);
     if (Number.isFinite(parsed) && parsed >= BPM_MIN && parsed <= BPM_MAX) {
-      setBpm(parsed);
+      // Whole-number BPM only; skip store write when unchanged.
+      const whole = Math.round(Math.max(BPM_MIN, Math.min(BPM_MAX, parsed)));
+      if (whole !== committedBpm) {
+        setBpm(whole);
+      }
+      setBpmDraft(String(whole));
     } else {
       setBpmDraft(String(committedBpm));
     }
@@ -307,11 +351,11 @@ export function Toolbar() {
           ⏮ Start
         </button>
         <div
-          className="toolbar-bpm"
+          className={`toolbar-bpm${tapTempoActive ? " toolbar-bpm--tapping" : ""}`}
           title={
             bpmConfidence !== null
-              ? `Detect confidence ${Math.round(bpmConfidence * 100)}%. Changing BPM keeps notes locked to the audio.`
-              : "Song BPM — changing this rewrites note beats so hits stay on the same audio times"
+              ? `Last sync confidence ${Math.round(bpmConfidence * 100)}%. Whole-number BPM — notes stay on beats.`
+              : "Whole-number BPM. Sync = detect from audio. Tap = press T on beats while listening."
           }
         >
           <label className="toolbar-bpm-label">
@@ -347,13 +391,44 @@ export function Toolbar() {
             />
           </label>
           <button
-            className="btn btn-sm btn-accent toolbar-bpm-detect"
+            className="btn btn-sm btn-accent toolbar-bpm-sync"
             type="button"
             disabled={!audioBuffer || bpmDetecting}
-            onClick={() => void detectBpmFromAudio()}
+            title="Detect whole BPM from song audio and apply (notes stay on beats)"
+            onClick={() => void syncBpmFromAudio()}
           >
-            {bpmDetecting ? "…" : "Detect"}
+            {bpmDetecting ? "…" : "Sync"}
           </button>
+          <button
+            className={`btn btn-sm toolbar-bpm-tap${tapTempoActive ? " is-active" : ""}`}
+            type="button"
+            title={
+              tapTempoActive
+                ? "Tap mode on — press T on each beat, Enter to apply, Esc to cancel"
+                : "Tap tempo — press T on beats while the song plays, then Enter"
+            }
+            onClick={() => {
+              if (tapTempoActive) {
+                if (tapEstimate?.ready) commitTapTempo(true);
+                else cancelTapTempo();
+              } else {
+                startTapTempo();
+              }
+            }}
+          >
+            {tapTempoActive
+              ? tapEstimate?.ready
+                ? `Apply ${tapEstimate.bpm}`
+                : `Tap ${tapTempoTimes.length}`
+              : "Tap"}
+          </button>
+          {tapTempoActive && (
+            <span className="toolbar-bpm-tap-hint" aria-live="polite">
+              {tapEstimate?.ready
+                ? `~${tapEstimate.bpm} · Enter`
+                : "T = beat"}
+            </span>
+          )}
         </div>
       </div>
 

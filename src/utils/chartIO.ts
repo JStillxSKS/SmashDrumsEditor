@@ -5,7 +5,11 @@ import { normalizeChartNotes } from "./chartNotes";
 import { chDrumEntriesToNotes, indiesNoteToChLanes } from "./chartLaneMapping";
 import { CHART_MUSIC_STREAM } from "./audioFormat";
 import { getSongOffset } from "./offset";
-import { buildMetaJson, createEmptyMeta, unbakeOffsetFromTiming } from "./metaIO";
+import {
+  buildMetaJson,
+  createEmptyMeta,
+  normalizeImportedTiming,
+} from "./metaIO";
 import {
   anchorsFromBpm,
   beatToTime,
@@ -340,17 +344,37 @@ function parseChartSections(text: string): {
   return { song, tracks };
 }
 
+/**
+ * Build SongTiming from Clone Hero [SyncTrack].
+ *
+ * Moonscraper charts usually carry tempo as `B` (milli-BPM) events — including
+ * mid-song changes. Older import only used B at tick 0 (or A pairs), so someone
+ * else's multi-tempo chart looked like a single BPM and "ignored anchors".
+ *
+ * Prefer accumulating time from all B events; use A (absolute µs) when present
+ * for that tick so exported A+B maps stay exact.
+ */
 function syncTrackToAnchors(entries: TrackEntry[]): TimingAnchor[] {
   const aByTick = new Map<number, number>();
   const bByTick = new Map<number, number>();
 
   for (const entry of entries) {
-    if (entry.key === "A") aByTick.set(entry.tick, parseChartNumber(entry.value));
-    if (entry.key === "B") bByTick.set(entry.tick, parseChartNumber(entry.value));
+    if (entry.key === "A") {
+      const v = parseChartNumber(entry.value);
+      if (Number.isFinite(v)) aByTick.set(entry.tick, v);
+    }
+    if (entry.key === "B") {
+      const v = parseChartNumber(entry.value);
+      if (Number.isFinite(v) && v > 0) bByTick.set(entry.tick, v);
+    }
+  }
+
+  const bTicks = [...bByTick.keys()].sort((a, b) => a - b);
+  if (bTicks.length >= 1) {
+    return anchorsFromChartBpmEvents(bByTick, aByTick);
   }
 
   const aTicks = [...aByTick.keys()].sort((a, b) => a - b);
-
   if (aTicks.length >= 2) {
     return aTicks.map((tick) => ({
       beat: tick / RESOLUTION,
@@ -358,21 +382,76 @@ function syncTrackToAnchors(entries: TrackEntry[]): TimingAnchor[] {
     }));
   }
 
-  const rawBpm = bByTick.get(0) ?? 120000;
-  const bpm = Number.isFinite(rawBpm) ? rawBpm / 1000 : 120;
-  if (aTicks.length === 1 && aTicks[0] === 0) {
-    const endTick = Math.max(...entries.map((e) => e.tick), 0);
-    const endBeat = endTick / RESOLUTION;
-    const endMicros = aByTick.get(endTick);
-    if (endMicros !== undefined && endBeat > 0) {
-      return [
-        { beat: 0, timer: 0 },
-        { beat: endBeat, timer: endMicros / 1_000_000 },
-      ];
-    }
+  return anchorsFromBpm(120);
+}
+
+/** Convert milli-BPM `B` events (+ optional absolute `A`) into beat/timer anchors. */
+function anchorsFromChartBpmEvents(
+  bByTick: Map<number, number>,
+  aByTick: Map<number, number>
+): TimingAnchor[] {
+  let ticks = [...bByTick.keys()].sort((a, b) => a - b);
+  if (ticks.length === 0) return anchorsFromBpm(120);
+
+  // Tempo before the first B event: treat that BPM as starting at tick 0.
+  if (ticks[0] > 0) {
+    ticks = [0, ...ticks];
   }
 
-  return anchorsFromBpm(bpm);
+  const milliAt = (tick: number, fallback: number) => {
+    const v = bByTick.get(tick);
+    return v !== undefined && v > 0 ? v : fallback;
+  };
+
+  let prevTick = ticks[0];
+  const firstRealB = ticks.find((t) => bByTick.has(t)) ?? prevTick;
+  let prevMilli = milliAt(prevTick, bByTick.get(firstRealB) ?? 120000);
+  let prevBpm = prevMilli / 1000;
+  if (!Number.isFinite(prevBpm) || prevBpm <= 0) prevBpm = 120;
+
+  const startA = aByTick.get(prevTick);
+  let timer =
+    startA !== undefined && Number.isFinite(startA) ? startA / 1_000_000 : 0;
+
+  const anchors: TimingAnchor[] = [
+    {
+      beat: prevTick / RESOLUTION,
+      timer: Math.round(timer * 1_000_000) / 1_000_000,
+    },
+  ];
+
+  for (let i = 1; i < ticks.length; i++) {
+    const tick = ticks[i];
+    const beats = (tick - prevTick) / RESOLUTION;
+    const absA = aByTick.get(tick);
+    if (absA !== undefined && Number.isFinite(absA)) {
+      timer = absA / 1_000_000;
+    } else {
+      timer += beats * (60 / prevBpm);
+    }
+
+    anchors.push({
+      beat: tick / RESOLUTION,
+      timer: Math.round(timer * 1_000_000) / 1_000_000,
+    });
+
+    const nextMilli = bByTick.get(tick);
+    if (nextMilli !== undefined && nextMilli > 0) {
+      prevBpm = nextMilli / 1000;
+    }
+    prevTick = tick;
+  }
+
+  // Single B event → need a second point so beat↔time math has a span.
+  if (anchors.length < 2) {
+    const spb = 60 / prevBpm;
+    anchors.push({
+      beat: anchors[0].beat + 4,
+      timer: Math.round((anchors[0].timer + 4 * spb) * 1_000_000) / 1_000_000,
+    });
+  }
+
+  return sortTimingAnchors(anchors);
 }
 
 function eventsToPhases(entries: TrackEntry[]): SongPhase[] {
@@ -425,12 +504,12 @@ export function parseChartFile(raw: string): { meta: MetaJson; charts: Record<Di
   const syncEntries = tracks.get("SyncTrack") ?? [];
   const eventEntries = tracks.get("Events") ?? [];
   const offsetMs = Number(song.Offset ?? 0);
-  const chartOffset = offsetMs / 1000;
+  const chartOffset = Number.isFinite(offsetMs) ? offsetMs / 1000 : 0;
   const rawTiming = syncTrackToAnchors(syncEntries);
-  const songOffset = getSongOffset({
-    SongOffsetSeconds: chartOffset,
-    SongTiming: rawTiming,
-  });
+  const { timing: songTiming, offset: songOffset } = normalizeImportedTiming(
+    rawTiming,
+    chartOffset
+  );
 
   const meta: MetaJson = {
     ...base,
@@ -439,7 +518,7 @@ export function parseChartFile(raw: string): { meta: MetaJson; charts: Record<Di
     NameCharter: song.Charter ?? base.NameCharter,
     FilePath: song.MusicStream ?? "",
     SongOffsetSeconds: songOffset,
-    SongTiming: unbakeOffsetFromTiming(rawTiming, songOffset),
+    SongTiming: songTiming,
     SongPhases: eventsToPhases(eventEntries).map((phase) => ({
       beat: phase.beat,
       phase: clampPhaseId(phase.phase),

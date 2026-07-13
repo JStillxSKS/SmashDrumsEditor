@@ -171,6 +171,32 @@ body {
   justify-content: flex-end;
 }
 
+.toolbar-output {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: min(420px, 100%);
+  padding: 2px 2px 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.toolbar-output-path {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+  padding-right: 4px;
+}
+
+.toolbar-output .btn {
+  flex-shrink: 0;
+}
+
 .timecode {
   font-family: "JetBrains Mono", monospace;
   font-size: 0.85rem;

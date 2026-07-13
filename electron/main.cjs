@@ -4,6 +4,8 @@ const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const {
   getOutputRoot,
   ensureOutputRoot,
+  setOutputRoot,
+  resetOutputRoot,
   resolveOutputPath,
   openOutputRoot,
   isTempPath,
@@ -64,9 +66,35 @@ ipcMain.handle("shell:openExternal", (_event, url) => {
   return shell.openExternal(target);
 });
 
-ipcMain.handle("output:getDir", () => getOutputRoot());
+ipcMain.handle("output:getDir", () => ensureOutputRoot());
 
 ipcMain.handle("output:open", () => openOutputRoot());
+
+ipcMain.handle("output:setDir", (_event, dirPath) => {
+  return setOutputRoot(dirPath);
+});
+
+ipcMain.handle("output:resetDir", () => {
+  return resetOutputRoot();
+});
+
+ipcMain.handle("output:pickDir", async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const current = (() => {
+    try {
+      return getOutputRoot();
+    } catch {
+      return undefined;
+    }
+  })();
+  const { canceled, filePaths } = await dialog.showOpenDialog(win ?? undefined, {
+    title: "Choose Smash Drums Editor output folder",
+    defaultPath: current,
+    properties: ["openDirectory", "createDirectory"],
+  });
+  if (canceled || !filePaths?.[0]) return null;
+  return setOutputRoot(filePaths[0]);
+});
 
 ipcMain.handle("import:pickFile", async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
@@ -118,37 +146,61 @@ ipcMain.handle("fs:readSibling", (_event, { sourceFilePath, siblingName }) => {
 });
 
 ipcMain.handle("output:save", (_event, { relativePath, data, encoding }) => {
-  const fullPath = resolveOutputPath(relativePath);
-  const payload = encoding === "base64" ? Buffer.from(data, "base64") : String(data);
-  fs.writeFileSync(fullPath, payload);
-  return { path: fullPath, displayPath: fullPath };
+  try {
+    const fullPath = resolveOutputPath(relativePath);
+    const payload = encoding === "base64" ? Buffer.from(data, "base64") : String(data);
+    fs.writeFileSync(fullPath, payload);
+    return { path: fullPath, displayPath: fullPath };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Could not save to output folder.\n${msg}\n\nUse "Change output folder" in the toolbar to pick a valid folder.`
+    );
+  }
 });
 
 ipcMain.handle("output:saveBinary", (_event, { relativePath, bytes }) => {
-  const fullPath = resolveOutputPath(relativePath);
-  fs.writeFileSync(fullPath, Buffer.from(bytes));
-  return { path: fullPath, displayPath: fullPath };
+  try {
+    const fullPath = resolveOutputPath(relativePath);
+    fs.writeFileSync(fullPath, Buffer.from(bytes));
+    return { path: fullPath, displayPath: fullPath };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Could not save to output folder.\n${msg}\n\nUse "Change output folder" in the toolbar to pick a valid folder.`
+    );
+  }
 });
 
 ipcMain.handle("file:saveBinary", (_event, { absolutePath, bytes }) => {
-  const target = path.normalize(String(absolutePath));
-  if (!path.isAbsolute(target)) {
-    throw new Error("Refusing to save outside an absolute path");
+  try {
+    const target = path.normalize(String(absolutePath));
+    if (!path.isAbsolute(target)) {
+      throw new Error("Refusing to save outside an absolute path");
+    }
+    if (isTempPath(target)) {
+      throw new Error("Refusing to save exports to a temp folder");
+    }
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, Buffer.from(bytes));
+    return { path: target, displayPath: target };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Could not save file.\n${msg}`);
   }
-  if (isTempPath(target)) {
-    throw new Error("Refusing to save exports to a temp folder");
-  }
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, Buffer.from(bytes));
-  return { path: target, displayPath: target };
 });
 
 ipcMain.handle("output:backupIfExists", (_event, { relativePath }) => {
-  const fullPath = resolveOutputPath(relativePath);
-  if (!fs.existsSync(fullPath)) return { backedUp: false };
-  const bak = `${fullPath}.bak`;
-  fs.copyFileSync(fullPath, bak);
-  return { backedUp: true, path: bak };
+  try {
+    const fullPath = resolveOutputPath(relativePath);
+    if (!fs.existsSync(fullPath)) return { backedUp: false };
+    const bak = `${fullPath}.bak`;
+    fs.copyFileSync(fullPath, bak);
+    return { backedUp: true, path: bak };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Could not create backup in output folder.\n${msg}`);
+  }
 });
 
 ipcMain.handle("output:readBinary", (_event, { relativePath }) => {
@@ -176,6 +228,8 @@ ipcMain.handle("output:listRecovery", () => {
 app.whenReady().then(async () => {
   try {
     await ensureAppUrl();
+    // Create + pin the output folder on every launch so Save never hits a missing dir.
+    ensureOutputRoot();
   } catch (err) {
     dialog.showErrorBox("Smash Drums Editor failed to start", String(err));
     app.quit();

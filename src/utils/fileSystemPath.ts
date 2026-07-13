@@ -5,12 +5,21 @@ export function fileSystemPath(file: File): string | null {
   return path;
 }
 
-/** True when `absolutePath` is inside the desktop export folder. */
+/**
+ * True when `absolutePath` looks like an editor export location.
+ * Also accepts any custom folder the user picked (ends with /output or
+ * contains the project layout). Used only as a soft hint for re-save path.
+ */
 export function isOutputFolderPath(absolutePath: string): boolean {
   const normalized = absolutePath.replace(/\\/g, "/").toLowerCase();
   return (
-    normalized.includes("smash drums editor/output") ||
-    normalized.includes("smashdrumseditor/output")
+    normalized.includes("smashdrumseditor/output") ||
+    normalized.includes("smash drums editor/smashdrumseditor/output") ||
+    // Legacy location (Desktop\Smash Drums Editor\output)
+    /smash drums editor\/output(?:\/|$)/.test(normalized) ||
+    // Custom folder often named "output"
+    /\/output\/[^/]+\.indies$/i.test(normalized) ||
+    /\/output$/i.test(normalized.replace(/\/[^/]+\.indies$/i, ""))
   );
 }
 

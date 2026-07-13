@@ -4,6 +4,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   isDesktop: true,
   openExternal: (url) => ipcRenderer.invoke("shell:openExternal", url),
   getOutputDir: () => ipcRenderer.invoke("output:getDir"),
+  setOutputDir: (dirPath) => ipcRenderer.invoke("output:setDir", dirPath),
+  pickOutputDir: () => ipcRenderer.invoke("output:pickDir"),
+  resetOutputDir: () => ipcRenderer.invoke("output:resetDir"),
   saveFile: (relativePath, data, encoding = "utf8") =>
     ipcRenderer.invoke("output:save", { relativePath, data, encoding }),
   saveBinaryFile: (relativePath, bytes) =>

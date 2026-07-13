@@ -6,6 +6,9 @@ declare global {
       isDesktop: true;
       openExternal: (url: string) => Promise<void>;
       getOutputDir: () => Promise<string>;
+      setOutputDir: (dirPath: string) => Promise<string>;
+      pickOutputDir: () => Promise<string | null>;
+      resetOutputDir: () => Promise<string>;
       saveFile: (
         relativePath: string,
         data: string,

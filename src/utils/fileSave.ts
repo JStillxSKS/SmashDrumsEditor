@@ -77,3 +77,16 @@ export async function getOutputFolder(): Promise<string | null> {
   if (!api?.isDesktop) return null;
   return api.getOutputDir();
 }
+
+/** Desktop folder picker — persists the choice for all future saves. */
+export async function pickOutputFolder(): Promise<string | null> {
+  const api = window.electronAPI;
+  if (!api?.isDesktop || !api.pickOutputDir) return null;
+  return api.pickOutputDir();
+}
+
+export async function resetOutputFolder(): Promise<string | null> {
+  const api = window.electronAPI;
+  if (!api?.isDesktop || !api.resetOutputDir) return null;
+  return api.resetOutputDir();
+}

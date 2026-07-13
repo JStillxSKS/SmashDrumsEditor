@@ -1,7 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PublishModal } from "./PublishModal";
 import { useEditorStore } from "../store/useEditorStore";
-import { openOutputFolder } from "../utils/fileSave";
+import {
+  getOutputFolder,
+  openOutputFolder,
+  pickOutputFolder,
+} from "../utils/fileSave";
 import {
   resyncAfterTimingChange,
   seekChartTime,
@@ -32,8 +36,16 @@ import { redoDepth, undoDepth } from "../store/history";
 const BPM_MIN = 40;
 const BPM_MAX = 300;
 
+function shortenPath(p: string, max = 42): string {
+  if (p.length <= max) return p;
+  const parts = p.replace(/\//g, "\\").split("\\").filter(Boolean);
+  if (parts.length <= 2) return `…${p.slice(-(max - 1))}`;
+  return `…\\${parts.slice(-2).join("\\")}`;
+}
+
 export function Toolbar() {
   const [publishOpen, setPublishOpen] = useState(false);
+  const [outputDir, setOutputDir] = useState<string | null>(null);
   const {
     drumsAudioUrl,
     audioSource,
@@ -78,6 +90,36 @@ export function Toolbar() {
   const [bpmDraft, setBpmDraft] = useState(() => String(committedBpm));
   const [bpmFocused, setBpmFocused] = useState(false);
   const tapEstimate = tapTempoActive ? getTapTempoEstimate() : null;
+
+  const refreshOutputDir = useCallback(async () => {
+    if (!window.electronAPI?.isDesktop) {
+      setOutputDir(null);
+      return;
+    }
+    try {
+      const dir = await getOutputFolder();
+      setOutputDir(dir);
+    } catch {
+      setOutputDir(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshOutputDir();
+  }, [refreshOutputDir]);
+
+  const changeOutputFolder = async () => {
+    try {
+      const next = await pickOutputFolder();
+      if (!next) return;
+      setOutputDir(next);
+      window.alert(`Output folder set to:\n${next}\n\nAll Save / Export CH will go here.`);
+    } catch (err) {
+      window.alert(
+        err instanceof Error ? err.message : "Could not change output folder."
+      );
+    }
+  };
 
   const rafRef = useRef(0);
   const lastFrameRef = useRef(0);
@@ -496,7 +538,9 @@ export function Toolbar() {
           title={
             sourceIndiesPath
               ? `Save to output folder (Ctrl+S):\n${sourceIndiesPath}`
-              : "Save to Desktop\\Smash Drums Editor\\output (Ctrl+S)"
+              : outputDir
+                ? `Save to (Ctrl+S):\n${outputDir}`
+                : "Save .indies (Ctrl+S)"
           }
           onClick={() => void exportIndies()}
         >
@@ -519,9 +563,31 @@ export function Toolbar() {
           Export CH chart + song.ini
         </button>
         {window.electronAPI?.isDesktop && (
-          <button className="btn" type="button" onClick={() => void openOutputFolder()}>
-            Open output
-          </button>
+          <div className="toolbar-output" title={outputDir ?? "Output folder"}>
+            <span className="toolbar-output-path">
+              {outputDir ? shortenPath(outputDir) : "Output…"}
+            </span>
+            <button
+              className="btn"
+              type="button"
+              title={
+                outputDir
+                  ? `Change where Save / Export write files.\nCurrent:\n${outputDir}`
+                  : "Choose output folder for Save / Export"
+              }
+              onClick={() => void changeOutputFolder()}
+            >
+              Change output
+            </button>
+            <button
+              className="btn"
+              type="button"
+              title={outputDir ? `Open:\n${outputDir}` : "Open output folder"}
+              onClick={() => void openOutputFolder().then(() => void refreshOutputDir())}
+            >
+              Open
+            </button>
+          </div>
         )}
       </div>
 

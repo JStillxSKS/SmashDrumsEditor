@@ -5,10 +5,10 @@ For people **without a PC**: install the **`.apk` only**. One file, tap to insta
 ## One-click download (what players want)
 
 **APK only (install this):**  
-https://github.com/JStillxSKS/SmashDrumsEditor/releases/download/v0.1.2/Smash-Drums-Editor-0.1.2.apk  
+https://github.com/JStillxSKS/SmashDrumsEditor/releases/download/v0.1.3/Smash-Drums-Editor-0.1.3.apk  
 
 **Release page (Assets button):**  
-https://github.com/JStillxSKS/SmashDrumsEditor/releases/tag/v0.1.2  
+https://github.com/JStillxSKS/SmashDrumsEditor/releases/tag/v0.1.3  
 
 Share the **.apk** link (or the Releases page). Players do **not** need the full project zip.
 

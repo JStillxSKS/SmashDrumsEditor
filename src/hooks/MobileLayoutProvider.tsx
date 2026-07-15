@@ -34,8 +34,9 @@ export function MobileLayoutProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const root = document.documentElement;
-    if (pref === "portrait" || pref === "landscape") {
-      root.dataset.mobileLayout = pref;
+    // One mobile charting chrome (tall highway + side overview)
+    if (pref === "mobile") {
+      root.dataset.mobileLayout = "mobile";
     } else {
       delete root.dataset.mobileLayout;
     }
@@ -58,8 +59,7 @@ export function MobileLayoutProvider({ children }: { children: ReactNode }) {
     setReopenGate(false);
   }, []);
 
-  const isMobileShell =
-    mobileCapable && (pref === "portrait" || pref === "landscape");
+  const isMobileShell = mobileCapable && pref === "mobile";
 
   const showGate = mobileCapable && (pref == null || reopenGate);
 

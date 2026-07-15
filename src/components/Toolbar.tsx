@@ -400,7 +400,7 @@ export function Toolbar({
             <button
               type="button"
               className="btn btn-sm"
-              title="Change portrait / landscape layout"
+              title="Change mobile / desktop layout"
               onClick={openGate}
             >
               Layout

@@ -41,7 +41,10 @@ import { useMobileLayout } from "../hooks/useMobileLayout";
 const STRIKE_OFFSET = 150;
 const PHASE_BLINK_MS = 550;
 const NOTE_HIT_MS = 520;
+/** Shorter, cheaper strike pulse on mobile */
+const NOTE_HIT_MS_MOBILE = 280;
 const LANE_HEADER_H = 44;
+const MOBILE_TOOL_HINT_MS = 10_000;
 const LANE_GAP = 6;
 const SELECTION_SCROLL_EDGE = 44;
 const SELECTION_SCROLL_MAX_TICKS = 18;
@@ -198,9 +201,11 @@ function noteBoxSize(laneW: number, rowPx: number) {
 }
 
 /** Editor-only hit pulse — not exported to chart files */
-function noteHitIntensity(elapsedMs: number): number {
-  if (elapsedMs < 0 || elapsedMs >= NOTE_HIT_MS) return 0;
-  const t = elapsedMs / NOTE_HIT_MS;
+function noteHitIntensity(elapsedMs: number, lite = false): number {
+  const maxMs = lite ? NOTE_HIT_MS_MOBILE : NOTE_HIT_MS;
+  if (elapsedMs < 0 || elapsedMs >= maxMs) return 0;
+  const t = elapsedMs / maxMs;
+  if (lite) return Math.pow(1 - t, 1.15);
   const attack = elapsedMs < 55 ? 1 : 0;
   const decay = Math.pow(1 - t, 0.65);
   const pulse = 0.65 + 0.35 * Math.sin((1 - t) * Math.PI * 2.5);
@@ -215,27 +220,56 @@ function drawGemNote(
   color: string,
   strength: 0 | 1 | 2,
   rowPx: number,
-  hitIntensity = 0
+  hitIntensity = 0,
+  lite = false
 ) {
   const { w, h, r } = noteBoxSize(laneW, rowPx);
   const x = cx - w / 2;
   const y = cy - h / 2;
   const isCrystal = strength === 0;
   const isBurning = strength === 2;
-  const baseBlur = isBurning ? 36 : isCrystal ? 5 : 14;
 
   ctx.save();
 
   if (hitIntensity > 0) {
-    const scale = 1 + hitIntensity * 0.62;
+    const scale = 1 + hitIntensity * (lite ? 0.35 : 0.62);
     ctx.translate(cx, cy);
     ctx.scale(scale, scale);
     ctx.translate(-cx, -cy);
   }
 
   if (isCrystal) {
-    ctx.globalAlpha *= 0.52;
+    ctx.globalAlpha *= lite ? 0.6 : 0.52;
   }
+
+  // Mobile: flat fills, no shadows/gradients (big GPU win)
+  if (lite) {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, r);
+    ctx.fillStyle = isCrystal
+      ? hexToRgba(color, 0.45)
+      : isBurning
+        ? lighten(color, 25)
+        : color;
+    ctx.fill();
+    if (isBurning || hitIntensity > 0.25) {
+      ctx.strokeStyle =
+        hitIntensity > 0.25
+          ? `rgba(255,255,255,${0.45 + hitIntensity * 0.4})`
+          : hexToRgba(lighten(color, 40), 0.85);
+      ctx.lineWidth = isBurning ? 2 : 1.5;
+      ctx.stroke();
+    }
+    const dotR = Math.max(2, Math.min(w, h) * 0.12);
+    ctx.beginPath();
+    ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
+  const baseBlur = isBurning ? 36 : isCrystal ? 5 : 14;
 
   if (isBurning) {
     ctx.shadowColor = hexToRgba(lighten(color, 50), 0.85);
@@ -344,10 +378,11 @@ function drawGemReceptor(
   laneW: number,
   color: string,
   rowPx: number,
-  hitIntensity = 0
+  hitIntensity = 0,
+  lite = false
 ) {
   const { w: noteW, h: noteH, r: noteR } = noteBoxSize(laneW, rowPx);
-  const lineWidth = hitIntensity > 0 ? 3.5 + hitIntensity * 0.75 : 3.5;
+  const lineWidth = hitIntensity > 0 ? 3.5 + hitIntensity * (lite ? 0.4 : 0.75) : 3.5;
   const gap = 2;
   const outset = gap + lineWidth / 2;
   const frameW = noteW + outset * 2;
@@ -359,14 +394,16 @@ function drawGemReceptor(
   ctx.save();
 
   if (hitIntensity > 0) {
-    const scale = 1 + hitIntensity * 0.5;
+    const scale = 1 + hitIntensity * (lite ? 0.28 : 0.5);
     ctx.translate(cx, cy);
     ctx.scale(scale, scale);
     ctx.translate(-cx, -cy);
   }
 
-  ctx.shadowColor = hitIntensity > 0 ? "#ffffff" : color;
-  ctx.shadowBlur = hitIntensity > 0 ? 18 + hitIntensity * 42 : 10;
+  if (!lite) {
+    ctx.shadowColor = hitIntensity > 0 ? "#ffffff" : color;
+    ctx.shadowBlur = hitIntensity > 0 ? 18 + hitIntensity * 42 : 10;
+  }
   ctx.strokeStyle =
     hitIntensity > 0
       ? `rgba(255,255,255,${0.7 + hitIntensity * 0.3})`
@@ -442,6 +479,7 @@ export function ChartEditor() {
     []
   );
   const { isMobileShell } = useMobileLayout();
+  const [mobileHintVisible, setMobileHintVisible] = useState(true);
 
   const {
     meta,
@@ -475,15 +513,25 @@ export function ChartEditor() {
     noteHitRef.current.clear();
   }, [difficulty]);
 
+  // Mobile tool hint: show on tool change, auto-hide, tap to dismiss
+  useEffect(() => {
+    if (!isMobileShell) return;
+    setMobileHintVisible(true);
+    const t = window.setTimeout(() => setMobileHintVisible(false), MOBILE_TOOL_HINT_MS);
+    return () => window.clearTimeout(t);
+  }, [editorTool, isMobileShell]);
+
   useEffect(() => {
     const state = useEditorStore.getState();
     const laneBuffer = getLaneWaveformBuffer(state);
     if (laneBuffer) {
+      // Coarser peaks on mobile (fewer samples to draw)
+      const bin = isMobileShell ? 48 : 16;
       laneWavePeaksRef.current = buildWaveformByTick(
         laneBuffer,
         meta.SongTiming,
         getSongOffset(meta),
-        16
+        bin
       );
     } else {
       laneWavePeaksRef.current = [];
@@ -494,6 +542,7 @@ export function ChartEditor() {
     audioSource,
     meta.SongTiming,
     meta.SongOffsetSeconds,
+    isMobileShell,
   ]);
 
   useEffect(() => {
@@ -501,11 +550,18 @@ export function ChartEditor() {
     if (!canvas) return;
 
     let raf = 0;
+    const lite = isMobileShell;
+
+    const canvasDpr = () => {
+      const raw = window.devicePixelRatio || 1;
+      // Cap resolution on phones — big win for fill rate
+      return lite ? Math.min(raw, 1.25) : raw;
+    };
 
     const syncCanvasSize = () => {
       const wrap = wrapRef.current;
       if (!wrap) return { w: 0, h: 0 };
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = canvasDpr();
       const w = wrap.clientWidth;
       const h = wrap.clientHeight;
       const cw = Math.max(1, Math.floor(w * dpr));
@@ -529,7 +585,7 @@ export function ChartEditor() {
       const { w, h } = syncCanvasSize();
       if (w < 2 || h < 2) return;
 
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = canvasDpr();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const sy = h - STRIKE_OFFSET;
       const trackX = 0;
@@ -580,13 +636,14 @@ export function ChartEditor() {
         noteHitRef.current.clear();
       }
 
+      const hitMaxMs = lite ? NOTE_HIT_MS_MOBILE : NOTE_HIT_MS;
       for (const [key, start] of noteHitRef.current) {
-        if (now - start >= NOTE_HIT_MS) noteHitRef.current.delete(key);
+        if (now - start >= hitMaxMs) noteHitRef.current.delete(key);
       }
 
       const laneHitIntensity = new Map<DrumId, number>();
       for (const [key, start] of noteHitRef.current) {
-        const intensity = noteHitIntensity(now - start);
+        const intensity = noteHitIntensity(now - start, lite);
         if (intensity <= 0) continue;
         const id = Number(key.split(":")[1]) as DrumId;
         laneHitIntensity.set(id, Math.max(laneHitIntensity.get(id) ?? 0, intensity));
@@ -619,57 +676,92 @@ export function ChartEditor() {
 
       const lanePeaks = laneWavePeaksRef.current;
       const scale = useEditorStore.getState().waveScale;
-      const waveState = useEditorStore.getState();
 
-      // Per-lane drum waveforms — tinted strips down each highway column
+      // Waveforms: full per-lane on desktop; single center mono strip on mobile
       if (lanePeaks.length > 0 && duration > 0) {
-        DRUM_LANES.forEach((lane, col) => {
-          const lx = laneLeft(trackX, col, laneW, laneGap);
-          const cx = laneCenter(trackX, col, laneW, laneGap);
-          const laneHalf = laneW * 0.4 * scale;
-          const laneStyle = { tintColor: lane.color, intensity: 0.58 };
-
+        if (lite) {
+          const cx = trackX + trackW / 2;
+          const half = Math.min(trackW * 0.22, 48) * scale;
           ctx.save();
           ctx.beginPath();
-          ctx.rect(lx, LANE_HEADER_H, laneW, sy - LANE_HEADER_H);
+          ctx.rect(trackX, LANE_HEADER_H, trackW, sy - LANE_HEADER_H);
           ctx.clip();
-
+          const style = { tintColor: `rgb(${T.neonRgb})`, intensity: 0.35 };
           drawMirroredWaveEnvelope(
             ctx,
             highwayWaveSamples(lanePeaks, scrollTick, ppt, sy, h, chartTime, timing, "future"),
             cx,
-            laneHalf,
+            half,
             "future",
-            laneStyle
+            style
           );
           drawMirroredWaveEnvelope(
             ctx,
             highwayWaveSamples(lanePeaks, scrollTick, ppt, sy, h, chartTime, timing, "past"),
             cx,
-            laneHalf,
+            half,
             "past",
-            laneStyle
+            style
           );
           ctx.restore();
-        });
+        } else {
+          DRUM_LANES.forEach((lane, col) => {
+            const lx = laneLeft(trackX, col, laneW, laneGap);
+            const cx = laneCenter(trackX, col, laneW, laneGap);
+            const laneHalf = laneW * 0.4 * scale;
+            const laneStyle = { tintColor: lane.color, intensity: 0.58 };
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(lx, LANE_HEADER_H, laneW, sy - LANE_HEADER_H);
+            ctx.clip();
+
+            drawMirroredWaveEnvelope(
+              ctx,
+              highwayWaveSamples(lanePeaks, scrollTick, ppt, sy, h, chartTime, timing, "future"),
+              cx,
+              laneHalf,
+              "future",
+              laneStyle
+            );
+            drawMirroredWaveEnvelope(
+              ctx,
+              highwayWaveSamples(lanePeaks, scrollTick, ppt, sy, h, chartTime, timing, "past"),
+              cx,
+              laneHalf,
+              "past",
+              laneStyle
+            );
+            ctx.restore();
+          });
+        }
       } else if (!audioBuffer && !drumsAudioBuffer) {
         ctx.fillStyle = "rgba(255,255,255,0.15)";
         ctx.font = "13px Inter, system-ui, sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText("Load audio to see lane waveforms", trackX + trackW / 2, sy - 60);
+        ctx.fillText(
+          lite ? "Load audio to chart" : "Load audio to see lane waveforms",
+          trackX + trackW / 2,
+          sy - 60
+        );
       }
 
       // Mask chart below strike bar — past notes/audio shouldn't slide under the receptors
       ctx.fillStyle = T.void;
       ctx.fillRect(trackX, sy + 1, trackW, h - sy);
 
-      // Strike-zone glow
-      const floorGlow = ctx.createLinearGradient(0, sy - 80, 0, h);
-      floorGlow.addColorStop(0, `rgba(${T.neonRgb}, 0)`);
-      floorGlow.addColorStop(0.65, `rgba(${T.magentaRgb}, 0.05)`);
-      floorGlow.addColorStop(1, `rgba(${T.neonRgb}, 0.1)`);
-      ctx.fillStyle = floorGlow;
-      ctx.fillRect(trackX, sy - 80, trackW, h - sy + 80);
+      // Strike-zone glow (desktop only — gradients are expensive on phones)
+      if (!lite) {
+        const floorGlow = ctx.createLinearGradient(0, sy - 80, 0, h);
+        floorGlow.addColorStop(0, `rgba(${T.neonRgb}, 0)`);
+        floorGlow.addColorStop(0.65, `rgba(${T.magentaRgb}, 0.05)`);
+        floorGlow.addColorStop(1, `rgba(${T.neonRgb}, 0.1)`);
+        ctx.fillStyle = floorGlow;
+        ctx.fillRect(trackX, sy - 80, trackW, h - sy + 80);
+      } else {
+        ctx.fillStyle = `rgba(${T.neonRgb}, 0.06)`;
+        ctx.fillRect(trackX, sy - 12, trackW, 24);
+      }
 
       // Song start line (beat 0)
       const startY = sy - (0 - scrollTick) * ppt;
@@ -797,11 +889,15 @@ export function ChartEditor() {
 
       // Lane dividers (outer edges + lane boundaries; gaps stay open between)
       const drawLaneDivider = (x: number, strong: boolean) => {
-        const divGrad = ctx.createLinearGradient(x, 0, x, h);
-        divGrad.addColorStop(0, "rgba(255,255,255,0.03)");
-        divGrad.addColorStop(0.5, `rgba(${T.neonRgb},0.14)`);
-        divGrad.addColorStop(1, "rgba(255,255,255,0.03)");
-        ctx.strokeStyle = divGrad;
+        if (lite) {
+          ctx.strokeStyle = `rgba(${T.neonRgb},${strong ? 0.2 : 0.1})`;
+        } else {
+          const divGrad = ctx.createLinearGradient(x, 0, x, h);
+          divGrad.addColorStop(0, "rgba(255,255,255,0.03)");
+          divGrad.addColorStop(0.5, `rgba(${T.neonRgb},0.14)`);
+          divGrad.addColorStop(1, "rgba(255,255,255,0.03)");
+          ctx.strokeStyle = divGrad;
+        }
         ctx.lineWidth = strong ? 1.5 : 0.75;
         ctx.beginPath();
         ctx.moveTo(x, 0);
@@ -848,7 +944,7 @@ export function ChartEditor() {
         const cx = laneCenter(trackX, col, laneW, laneGap);
         const color = isPhaseBlink && blinkColor ? blinkColor : lane.color;
         const receptorHit = laneHitIntensity.get(lane.id) ?? 0;
-        drawGemReceptor(ctx, cx, sy, laneW, color, gridRowPx, receptorHit);
+        drawGemReceptor(ctx, cx, sy, laneW, color, gridRowPx, receptorHit, lite);
       });
 
       // Notes (gems) — only above strike bar so scrolling feels like a highway, not a sliding sheet
@@ -865,16 +961,17 @@ export function ChartEditor() {
         const col = laneColumnIndex(note.Id);
         const cx = laneCenter(trackX, col, laneW, laneGap);
         const hitStart = noteHitRef.current.get(noteHitKey(note));
-        const hit = hitStart !== undefined ? noteHitIntensity(now - hitStart) : 0;
+        const hit =
+          hitStart !== undefined ? noteHitIntensity(now - hitStart, lite) : 0;
 
         ctx.save();
-        if (approach < 0.98) {
+        if (!lite && approach < 0.98) {
           ctx.globalAlpha *= approach;
           ctx.translate(cx, y);
           ctx.scale(approach, approach);
           ctx.translate(-cx, -y);
         }
-        drawGemNote(ctx, cx, y, laneW, lane.color, note.Strength, gridRowPx, hit);
+        drawGemNote(ctx, cx, y, laneW, lane.color, note.Strength, gridRowPx, hit, lite);
         ctx.restore();
       }
 
@@ -896,27 +993,32 @@ export function ChartEditor() {
       // Phase blink overlay (highway flash when strike bar crosses a phase)
       if (isPhaseBlink && blinkColor) {
         ctx.save();
-        ctx.fillStyle = hexToRgba(blinkColor, blinkStrength * 0.28);
-        ctx.fillRect(trackX, 44, trackW, h - 44);
-        const strikeGlow = ctx.createLinearGradient(0, sy - 48, 0, sy + 48);
-        strikeGlow.addColorStop(0, hexToRgba(blinkColor, 0));
-        strikeGlow.addColorStop(0.45, hexToRgba(blinkColor, blinkStrength * 0.35));
-        strikeGlow.addColorStop(0.5, hexToRgba(blinkColor, blinkStrength * 0.55));
-        strikeGlow.addColorStop(0.55, hexToRgba(blinkColor, blinkStrength * 0.35));
-        strikeGlow.addColorStop(1, hexToRgba(blinkColor, 0));
-        ctx.fillStyle = strikeGlow;
-        ctx.fillRect(trackX, sy - 48, trackW, 96);
+        if (lite) {
+          ctx.fillStyle = hexToRgba(blinkColor, blinkStrength * 0.18);
+          ctx.fillRect(trackX, sy - 16, trackW, 32);
+        } else {
+          ctx.fillStyle = hexToRgba(blinkColor, blinkStrength * 0.28);
+          ctx.fillRect(trackX, 44, trackW, h - 44);
+          const strikeGlow = ctx.createLinearGradient(0, sy - 48, 0, sy + 48);
+          strikeGlow.addColorStop(0, hexToRgba(blinkColor, 0));
+          strikeGlow.addColorStop(0.45, hexToRgba(blinkColor, blinkStrength * 0.35));
+          strikeGlow.addColorStop(0.5, hexToRgba(blinkColor, blinkStrength * 0.55));
+          strikeGlow.addColorStop(0.55, hexToRgba(blinkColor, blinkStrength * 0.35));
+          strikeGlow.addColorStop(1, hexToRgba(blinkColor, 0));
+          ctx.fillStyle = strikeGlow;
+          ctx.fillRect(trackX, sy - 48, trackW, 96);
+        }
         ctx.restore();
       }
 
       // Audio / waveform labels
       const waveLabel =
-        waveState.audioSource === "drums" && waveState.drumsAudioFileName
-          ? `Audio: drums · ${waveState.drumsAudioFileName}`
-          : waveState.audioFileName
-            ? `Audio: song · ${waveState.audioFileName}`
-            : waveState.drumsAudioFileName
-              ? `Audio: drums · ${waveState.drumsAudioFileName}`
+        state.audioSource === "drums" && state.drumsAudioFileName
+          ? `Audio: drums · ${state.drumsAudioFileName}`
+          : state.audioFileName
+            ? `Audio: song · ${state.audioFileName}`
+            : state.drumsAudioFileName
+              ? `Audio: drums · ${state.drumsAudioFileName}`
               : null;
       if (waveLabel) {
         ctx.fillStyle = "rgba(255,255,255,0.25)";
@@ -953,6 +1055,7 @@ export function ChartEditor() {
     duration,
     waveScale,
     placementMode,
+    isMobileShell,
   ]);
 
   useEffect(() => {
@@ -1475,8 +1578,19 @@ export function ChartEditor() {
             <span className="placement-hint-key">Esc</span>
           </div>
         )}
-        {isMobileShell && !placementMode && (
-          <div className="placement-hint mobile-tool-hint">
+        {isMobileShell && !placementMode && mobileHintVisible && (
+          <div
+            className="placement-hint mobile-tool-hint"
+            role="button"
+            tabIndex={0}
+            onClick={() => setMobileHintVisible(false)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setMobileHintVisible(false);
+              }
+            }}
+          >
             {editorTool === "seek"
               ? "Seek — tap highway · drag to pan"
               : "Edit — tap strike color to place · tap gem to remove · drag to pan"}

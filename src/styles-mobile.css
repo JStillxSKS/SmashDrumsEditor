@@ -229,6 +229,16 @@
   font-size: 0.72rem;
   max-width: 92%;
   line-height: 1.3;
+  cursor: pointer;
+  pointer-events: auto;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.app.app--mobile .mobile-tool-hint::after {
+  content: " · tap to dismiss";
+  opacity: 0.65;
+  font-size: 0.65rem;
 }
 
 /* Side drawers → full-screen overlays on mobile */
@@ -338,38 +348,40 @@
   box-shadow: none;
 }
 
-/* ── Portrait: overview under highway ── */
-html[data-mobile-layout="portrait"] .app.app--mobile .chart-stage--mobile {
-  flex-direction: column;
-}
-
-html[data-mobile-layout="portrait"] .app.app--mobile .song-overview {
-  width: 100%;
-  height: 64px;
-  flex-shrink: 0;
-  border-left: none;
-  border-top: 1px solid rgba(255, 184, 0, 0.22);
-  cursor: ew-resize;
-}
-
-/* ── Landscape: thin side overview ── */
+/*
+ * Single mobile charting chrome: tall highway + thin side overview.
+ * (Portrait/landscape device orientation both use this shell.)
+ */
+html[data-mobile-layout="mobile"] .app.app--mobile .chart-stage--mobile,
+html[data-mobile-layout="portrait"] .app.app--mobile .chart-stage--mobile,
 html[data-mobile-layout="landscape"] .app.app--mobile .chart-stage--mobile {
   flex-direction: row;
 }
 
+html[data-mobile-layout="mobile"] .app.app--mobile .song-overview,
+html[data-mobile-layout="portrait"] .app.app--mobile .song-overview,
 html[data-mobile-layout="landscape"] .app.app--mobile .song-overview {
   width: 72px;
   flex-shrink: 0;
+  height: auto;
+  border-top: none;
+  cursor: ns-resize;
 }
 
+html[data-mobile-layout="mobile"] .app.app--mobile .toolbar-left h1,
+html[data-mobile-layout="portrait"] .app.app--mobile .toolbar-left h1,
 html[data-mobile-layout="landscape"] .app.app--mobile .toolbar-left h1 {
   display: none;
 }
 
+html[data-mobile-layout="mobile"] .app.app--mobile .toolbar,
+html[data-mobile-layout="portrait"] .app.app--mobile .toolbar,
 html[data-mobile-layout="landscape"] .app.app--mobile .toolbar {
   padding: 6px 8px;
 }
 
+html[data-mobile-layout="mobile"] .app.app--mobile .beatcode,
+html[data-mobile-layout="portrait"] .app.app--mobile .beatcode,
 html[data-mobile-layout="landscape"] .app.app--mobile .beatcode {
   display: none;
 }

@@ -15,6 +15,7 @@ import { drawMirroredWaveEnvelope, WAVE_WIDTH_FRAC } from "../utils/waveDraw";
 import { buildWaveformByTick, type WavePeak } from "../utils/waveform";
 import { getMainWaveformBuffer } from "../utils/audioSource";
 import type { TimingAnchor } from "../types/meta";
+import { useMobileLayout } from "../hooks/useMobileLayout";
 
 const STRIKE_OFFSET = 150;
 const LANE_HEADER_H = 44;
@@ -61,6 +62,7 @@ export function SongOverview() {
   const draggingRef = useRef(false);
   const horizontalRef = useRef(false);
   const [scrubbing, setScrubbing] = useState(false);
+  const { isMobileShell } = useMobileLayout();
 
   const {
     meta,
@@ -83,18 +85,26 @@ export function SongOverview() {
         buffer,
         meta.SongTiming,
         getSongOffset(meta),
-        16
+        isMobileShell ? 40 : 16
       );
     } else {
       wavePeaksRef.current = [];
     }
-  }, [audioBuffer, drumsAudioBuffer, audioSource, meta.SongTiming, meta.SongOffsetSeconds]);
+  }, [
+    audioBuffer,
+    drumsAudioBuffer,
+    audioSource,
+    meta.SongTiming,
+    meta.SongOffsetSeconds,
+    isMobileShell,
+  ]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     let raf = 0;
+    const lite = isMobileShell;
 
     const draw = () => {
       raf = requestAnimationFrame(draw);
@@ -103,12 +113,14 @@ export function SongOverview() {
       const ctx = canvas.getContext("2d");
       if (!ctx || !wrap) return;
 
-      const dpr = window.devicePixelRatio || 1;
+      const rawDpr = window.devicePixelRatio || 1;
+      const dpr = lite ? Math.min(rawDpr, 1.25) : rawDpr;
       const w = wrap.clientWidth;
       const h = wrap.clientHeight;
       if (w < 2 || h < 2) return;
 
-      const horizontal = w >= h;
+      // Side strip is always vertical overview on the mobile shell
+      const horizontal = lite ? false : w >= h;
       horizontalRef.current = horizontal;
 
       const cw = Math.max(1, Math.floor(w * dpr));
@@ -296,10 +308,12 @@ export function SongOverview() {
         const playY = tickToY(playTick, totalTicks, h);
         if (playY >= 0 && playY <= h) {
           ctx.save();
-          ctx.shadowColor = T.magenta;
-          ctx.shadowBlur = 14;
+          if (!lite) {
+            ctx.shadowColor = T.magenta;
+            ctx.shadowBlur = 14;
+          }
           ctx.strokeStyle = `rgba(${T.neonRgb}, 0.95)`;
-          ctx.lineWidth = 1.5;
+          ctx.lineWidth = lite ? 2 : 1.5;
           ctx.beginPath();
           ctx.moveTo(0, playY);
           ctx.lineTo(w, playY);
@@ -329,6 +343,7 @@ export function SongOverview() {
     audioBuffer,
     drumsAudioBuffer,
     audioSource,
+    isMobileShell,
   ]);
 
   const jumpFromClient = (clientX: number, clientY: number) => {

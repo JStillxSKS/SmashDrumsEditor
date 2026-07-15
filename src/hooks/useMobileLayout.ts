@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 
-export type MobileLayoutPref = "portrait" | "landscape" | "desktop";
+/** Mobile charting shell vs full desktop chrome. No portrait/landscape split. */
+export type MobileLayoutPref = "mobile" | "desktop";
 
 export const STORAGE_KEY = "sde-mobile-layout";
 
@@ -9,7 +10,7 @@ export type MobileLayoutContextValue = {
   pref: MobileLayoutPref | null;
   /** Whether the mobile UI shell (compact chrome + touch tools) is active */
   isMobileShell: boolean;
-  /** Whether to show the portrait/landscape chooser */
+  /** Whether to show the first-run layout chooser */
   showGate: boolean;
   /** Force reopening the gate (toolbar “Layout”) */
   reopenGate: boolean;
@@ -36,7 +37,9 @@ export function detectMobileCapable(): boolean {
 export function readStoredPref(): MobileLayoutPref | null {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
-    if (v === "portrait" || v === "landscape" || v === "desktop") return v;
+    // Migrate old portrait/landscape prefs → single mobile shell
+    if (v === "portrait" || v === "landscape" || v === "mobile") return "mobile";
+    if (v === "desktop") return "desktop";
   } catch {
     // localStorage unavailable
   }

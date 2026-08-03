@@ -119,6 +119,49 @@ ipcMain.handle("import:pickFile", async () => {
   };
 });
 
+ipcMain.handle("import:pickAudio", async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    title: "Choose song audio",
+    properties: ["openFile"],
+    filters: [
+      {
+        name: "Audio",
+        extensions: ["mp3", "ogg", "wav", "flac", "m4a", "aac", "opus", "webm"],
+      },
+      { name: "All files", extensions: ["*"] },
+    ],
+  });
+  if (canceled || !filePaths?.[0]) return null;
+
+  const filePath = filePaths[0];
+  const data = fs.readFileSync(filePath);
+  return {
+    path: filePath,
+    name: path.basename(filePath),
+    bytes: Array.from(data),
+  };
+});
+
+ipcMain.handle("output:listIndies", () => {
+  const root = ensureOutputRoot();
+  return fs
+    .readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .filter((entry) => entry.name.toLowerCase().endsWith(".indies"))
+    .filter((entry) => !entry.name.endsWith(".autosave.indies"))
+    .map((entry) => {
+      const full = path.join(root, entry.name);
+      const stat = fs.statSync(full);
+      return {
+        name: entry.name,
+        path: full,
+        mtime: stat.mtimeMs,
+        size: stat.size,
+      };
+    })
+    .sort((a, b) => b.mtime - a.mtime);
+});
+
 ipcMain.handle("fs:readSibling", (_event, { sourceFilePath, siblingName }) => {
   const dir = path.dirname(sourceFilePath);
   const safeName = path.basename(String(siblingName));

@@ -1,4 +1,5 @@
 import type { ChartNote, MetaJson, SongPhase, TimingAnchor } from "../types/meta";
+import { DEFAULT_TIME_SIGNATURE, normalizeTimeSignature } from "./resolution";
 
 const META_FIELD_ORDER: (keyof MetaJson)[] = [
   "NameArtist",
@@ -6,6 +7,7 @@ const META_FIELD_ORDER: (keyof MetaJson)[] = [
   "NameCharter",
   "FilePath",
   "SongOffsetSeconds",
+  "TimeSignature",
   "SongTiming",
   "SongPhases",
   "ChartEasy",
@@ -79,6 +81,11 @@ function serializeObjectArray<T>(items: T[], serializeItem: (item: T) => string)
   return `[\n${items.map(serializeItem).join(",\n")}\n    ]`;
 }
 
+function serializeTimeSignature(meta: MetaJson): string {
+  const ts = normalizeTimeSignature(meta.TimeSignature ?? DEFAULT_TIME_SIGNATURE);
+  return `{\n        "numerator": ${ts.numerator},\n        "denominator": ${ts.denominator}\n    }`;
+}
+
 /** Serialize meta.json matching Stacked Actors / official Indies layout. */
 export function serializeMetaJson(meta: MetaJson): string {
   const lines: string[] = ["{"];
@@ -95,6 +102,9 @@ export function serializeMetaJson(meta: MetaJson): string {
         break;
       case "SongOffsetSeconds":
         lines.push(`    "${key}": ${formatOffset(meta.SongOffsetSeconds)}${trailing}`);
+        break;
+      case "TimeSignature":
+        lines.push(`    "${key}": ${serializeTimeSignature(meta)}${trailing}`);
         break;
       case "SongTiming":
         lines.push(

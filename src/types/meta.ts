@@ -1,3 +1,7 @@
+import type { TimeSignature } from "../utils/resolution";
+
+export type { TimeSignature };
+
 export type Difficulty = "easy" | "normal" | "hard" | "extreme";
 
 export type PlacementMode = "phase" | "anchor" | null;
@@ -106,6 +110,11 @@ export type MetaJson = {
   IndiesDbMapId?: string;
   FilePath: string;
   SongOffsetSeconds: number;
+  /**
+   * Editor + CH export meter (default 4/4). Smash gameplay is beat-based and
+   * ignores this field; it drives bar lines, measure snap, and `TS` in .chart.
+   */
+  TimeSignature?: TimeSignature;
   SongTiming: TimingAnchor[];
   SongPhases: SongPhase[];
   ChartEasy: ChartNote[];

@@ -1,6 +1,11 @@
 import type { TimingAnchor } from "../types/meta";
 import { useEditorStore } from "../store/useEditorStore";
-import { beatToTick, formatTick } from "../utils/resolution";
+import { getTimeSignature } from "../utils/metaIO";
+import {
+  beatToTick,
+  formatTick,
+  type TimeSignature,
+} from "../utils/resolution";
 import { bpmAtAnchor, sortTimingAnchors } from "../utils/timing";
 
 export function TimingAnchorsPanel({ embedded = false }: { embedded?: boolean }) {
@@ -17,6 +22,7 @@ export function TimingAnchorsPanel({ embedded = false }: { embedded?: boolean })
 
   const anchors = sortTimingAnchors(meta.SongTiming);
   const placing = placementMode === "anchor";
+  const timeSig = getTimeSignature(meta);
 
   const togglePlaceOnGrid = () => {
     setPlacementMode(placing ? null : "anchor");
@@ -47,6 +53,7 @@ export function TimingAnchorsPanel({ embedded = false }: { embedded?: boolean })
             anchor={anchor}
             index={index}
             anchors={anchors}
+            timeSig={timeSig}
             canRemove={anchors.length > 2 && index > 0}
             onUpdate={(patch) => updateAnchor(index, patch)}
             onSetBpm={(bpm) => setAnchorBpm(index, bpm)}
@@ -82,6 +89,7 @@ function AnchorItem({
   anchor,
   index,
   anchors,
+  timeSig,
   canRemove,
   onUpdate,
   onSetBpm,
@@ -90,6 +98,7 @@ function AnchorItem({
   anchor: TimingAnchor;
   index: number;
   anchors: TimingAnchor[];
+  timeSig: TimeSignature;
   canRemove: boolean;
   onUpdate: (patch: Partial<TimingAnchor>) => void;
   onSetBpm: (bpm: number) => void;
@@ -105,7 +114,8 @@ function AnchorItem({
     <li className={`phase-item anchor-item${locked ? " is-anchored" : ""}`}>
       <div className="phase-item-head">
         <span className="anchor-badge">
-          {isRoot ? "Start" : locked ? "Anchored" : "BPM"} · {formatTick(tick)}
+          {isRoot ? "Start" : locked ? "Anchored" : "BPM"} ·{" "}
+          {formatTick(tick, timeSig)}
         </span>
         <button
           className="phase-remove"

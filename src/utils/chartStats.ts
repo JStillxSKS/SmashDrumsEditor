@@ -1,5 +1,6 @@
 import type { ChartNote, Difficulty, MetaJson } from "../types/meta";
-import { TICKS_PER_MEASURE, beatToTick } from "./resolution";
+import { beatToTick, ticksPerMeasure } from "./resolution";
+import { getTimeSignature } from "./metaIO";
 import { beatToTime } from "./timing";
 
 export type DifficultyStats = {
@@ -19,10 +20,14 @@ function maxBeat(notes: ChartNote[]): number {
   return max;
 }
 
-function measureNoteCounts(notes: ChartNote[]): Map<number, number> {
+function measureNoteCounts(
+  notes: ChartNote[],
+  measureTicks: number
+): Map<number, number> {
   const counts = new Map<number, number>();
+  const tpm = Math.max(1, measureTicks);
   for (const note of notes) {
-    const measure = Math.floor(beatToTick(note.Beat) / TICKS_PER_MEASURE);
+    const measure = Math.floor(beatToTick(note.Beat) / tpm);
     counts.set(measure, (counts.get(measure) ?? 0) + 1);
   }
   return counts;
@@ -31,7 +36,8 @@ function measureNoteCounts(notes: ChartNote[]): Map<number, number> {
 export function statsForDifficulty(
   notes: ChartNote[],
   timing: MetaJson["SongTiming"],
-  fallbackDuration: number
+  fallbackDuration: number,
+  measureTicks: number
 ): DifficultyStats {
   const noteCount = notes.length;
   if (noteCount === 0) {
@@ -51,7 +57,7 @@ export function statsForDifficulty(
     0.001
   );
 
-  const counts = measureNoteCounts(notes);
+  const counts = measureNoteCounts(notes, measureTicks);
   let peakMeasure = 0;
   let peakMeasureNotes = 0;
   for (const [measure, count] of counts) {
@@ -76,10 +82,11 @@ export function computeChartStats(
   audioDuration: number
 ): ChartStats {
   const timing = meta.SongTiming;
+  const measureTicks = ticksPerMeasure(getTimeSignature(meta));
   return {
-    easy: statsForDifficulty(charts.easy, timing, audioDuration),
-    normal: statsForDifficulty(charts.normal, timing, audioDuration),
-    hard: statsForDifficulty(charts.hard, timing, audioDuration),
-    extreme: statsForDifficulty(charts.extreme, timing, audioDuration),
+    easy: statsForDifficulty(charts.easy, timing, audioDuration, measureTicks),
+    normal: statsForDifficulty(charts.normal, timing, audioDuration, measureTicks),
+    hard: statsForDifficulty(charts.hard, timing, audioDuration, measureTicks),
+    extreme: statsForDifficulty(charts.extreme, timing, audioDuration, measureTicks),
   };
 }

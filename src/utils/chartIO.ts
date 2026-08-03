@@ -1,6 +1,10 @@
 import type { ChartNote, Difficulty, MetaJson, SongPhase, TimingAnchor } from "../types/meta";
 import { clampPhaseId, clampPower, phaseById } from "../types/meta";
-import { RESOLUTION } from "./resolution";
+import {
+  RESOLUTION,
+  timeSignatureFromSyncEntries,
+  timeSignatureToChartTs,
+} from "./resolution";
 import { normalizeChartNotes } from "./chartNotes";
 import { chDrumEntriesToNotes, indiesNoteToChLanes } from "./chartLaneMapping";
 import { CHART_MUSIC_STREAM } from "./audioFormat";
@@ -8,6 +12,7 @@ import { getSongOffset } from "./offset";
 import {
   buildMetaJson,
   createEmptyMeta,
+  getTimeSignature,
   normalizeImportedTiming,
 } from "./metaIO";
 import {
@@ -118,7 +123,7 @@ function syncEndBeat(
  * Clone Hero [SyncTrack] — Moonscraper layout:
  * - `B` = milli-BPM at tick (tempo applies forward)
  * - `A` = absolute time lock only when the marker is anchored
- * - `TS 4` at tempo changes
+ * - `TS N [exp]` at start / tempo changes (from chart TimeSignature)
  */
 function buildSyncTrackLines(
   meta: MetaJson,
@@ -128,9 +133,10 @@ function buildSyncTrackLines(
   const anchors = sortTimingAnchors(meta.SongTiming);
   const changes = tempoChangeAnchors(anchors);
   const lines: string[] = [];
+  const tsLine = timeSignatureToChartTs(getTimeSignature(meta));
 
   const startBpm = Math.round(bpmAtAnchor(anchors, 0) * 1000);
-  lines.push("  0 = TS 4");
+  lines.push(`  0 = ${tsLine}`);
   if (changes[0]?.anchored) {
     lines.push("  0 = A 0");
   }
@@ -143,7 +149,7 @@ function buildSyncTrackLines(
 
     // BPM applying forward from this marker (segment starting here).
     const bpm = Math.round(bpmAtBeat(anchor.beat, anchors) * 1000);
-    lines.push(`  ${tick} = TS 4`);
+    lines.push(`  ${tick} = ${tsLine}`);
     if (anchor.anchored) {
       const micros = Math.round(anchor.timer * 1_000_000);
       lines.push(`  ${tick} = A ${micros}`);
@@ -160,7 +166,7 @@ function buildSyncTrackLines(
 
   if (endTick > lastChangeTick) {
     const endAnchor = anchors.find((a) => Math.abs(a.beat - endBeat) < 1 / RESOLUTION);
-    lines.push(`  ${endTick} = TS 4`);
+    lines.push(`  ${endTick} = ${tsLine}`);
     if (endAnchor?.anchored) {
       lines.push(`  ${endTick} = A ${Math.round(beatToTime(endBeat, anchors) * 1_000_000)}`);
     }
@@ -517,6 +523,7 @@ export function parseChartFile(raw: string): { meta: MetaJson; charts: Record<Di
     NameCharter: song.Charter ?? base.NameCharter,
     FilePath: song.MusicStream ?? "",
     SongOffsetSeconds: songOffset,
+    TimeSignature: timeSignatureFromSyncEntries(syncEntries),
     SongTiming: songTiming,
     SongPhases: eventsToPhases(eventEntries).map((phase) => ({
       beat: phase.beat,

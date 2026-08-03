@@ -1,24 +1,31 @@
 import type { ChartNote } from "../types/meta";
 import { sortChartNotes } from "./chartNotes";
-import { BEATS_PER_MEASURE, RESOLUTION, beatToTick } from "./resolution";
+import {
+  BEATS_PER_MEASURE,
+  RESOLUTION,
+  beatToTick,
+  beatsPerMeasure,
+  type TimeSignature,
+} from "./resolution";
 
 export type LowerDifficulty = "hard" | "normal" | "easy";
 
 const KICK: ChartNote["Id"] = 0;
 
-/** Beat index within a 4/4 measure (0–3). */
-function beatInMeasure(beat: number): number {
-  const m = beat % BEATS_PER_MEASURE;
-  return m < 0 ? m + BEATS_PER_MEASURE : m;
+/** Beat index within a measure (0 … beatsPerBar). */
+function beatInMeasure(beat: number, beatsPerBar = BEATS_PER_MEASURE): number {
+  const bar = beatsPerBar > 0 ? beatsPerBar : BEATS_PER_MEASURE;
+  const m = beat % bar;
+  return m < 0 ? m + bar : m;
 }
 
-function isOnBeat(beat: number): boolean {
-  const n = beatInMeasure(beat);
+function isOnBeat(beat: number, beatsPerBar = BEATS_PER_MEASURE): boolean {
+  const n = beatInMeasure(beat, beatsPerBar);
   return Math.abs(n - Math.round(n)) < 1e-6 && Math.round(n) % 2 === 0;
 }
 
-function isOffBeat(beat: number): boolean {
-  const n = beatInMeasure(beat);
+function isOffBeat(beat: number, beatsPerBar = BEATS_PER_MEASURE): boolean {
+  const n = beatInMeasure(beat, beatsPerBar);
   return Math.abs(n - Math.round(n)) < 1e-6 && Math.round(n) % 2 === 1;
 }
 
@@ -27,7 +34,8 @@ function applyDensityGate(
   beat: number,
   tickDelta: number,
   onBeat: boolean,
-  offBeat: boolean
+  offBeat: boolean,
+  beatsPerBar = BEATS_PER_MEASURE
 ): { onBeat: boolean; offBeat: boolean; skip: boolean } {
   let on = onBeat;
   let off = offBeat;
@@ -37,7 +45,7 @@ function applyDensityGate(
   if (diff === "hard" && tickDelta >= RESOLUTION && !off) on = true;
 
   if (diff === "hard") {
-    const n = beatInMeasure(beat);
+    const n = beatInMeasure(beat, beatsPerBar);
     if (Math.abs(n * 2 - Math.round(n * 2)) < 1e-6) on = true;
   }
 
@@ -60,10 +68,11 @@ function pickNotesAtBeat(
   beat: number,
   notes: ChartNote[],
   onBeat: boolean,
-  offBeat: boolean
+  offBeat: boolean,
+  beatsPerBar = BEATS_PER_MEASURE
 ): ChartNote[] {
   const sorted = [...notes].sort((a, b) => a.Id - b.Id);
-  const downbeat = Math.abs(beatInMeasure(beat)) < 1e-6;
+  const downbeat = Math.abs(beatInMeasure(beat, beatsPerBar)) < 1e-6;
 
   if (diff === "easy") {
     if (!onBeat) return [];
@@ -125,7 +134,11 @@ function pickNotesAtBeat(
   return [];
 }
 
-function downchartDifficulty(extreme: ChartNote[], diff: LowerDifficulty): ChartNote[] {
+function downchartDifficulty(
+  extreme: ChartNote[],
+  diff: LowerDifficulty,
+  beatsPerBar = BEATS_PER_MEASURE
+): ChartNote[] {
   const byTick = new Map<number, ChartNote[]>();
   for (const note of extreme) {
     const tick = beatToTick(note.Beat);
@@ -142,10 +155,24 @@ function downchartDifficulty(extreme: ChartNote[], diff: LowerDifficulty): Chart
     const beat = tick / RESOLUTION;
     const notes = byTick.get(tick)!;
     const tickDelta = tick - prevTick;
-    const gate = applyDensityGate(diff, beat, tickDelta, isOnBeat(beat), isOffBeat(beat));
+    const gate = applyDensityGate(
+      diff,
+      beat,
+      tickDelta,
+      isOnBeat(beat, beatsPerBar),
+      isOffBeat(beat, beatsPerBar),
+      beatsPerBar
+    );
     if (gate.skip) continue;
 
-    const picked = pickNotesAtBeat(diff, beat, notes, gate.onBeat, gate.offBeat);
+    const picked = pickNotesAtBeat(
+      diff,
+      beat,
+      notes,
+      gate.onBeat,
+      gate.offBeat,
+      beatsPerBar
+    );
     out.push(...picked);
     if (picked.length > 0) prevTick = tick;
   }
@@ -154,17 +181,22 @@ function downchartDifficulty(extreme: ChartNote[], diff: LowerDifficulty): Chart
 }
 
 /** Generate Hard, Normal, and Easy charts from Extreme (Moonscraper / EasyChartGenerator style). */
-export function generateLowerDifficulties(extreme: ChartNote[]): Record<LowerDifficulty, ChartNote[]> {
+export function generateLowerDifficulties(
+  extreme: ChartNote[],
+  timeSignature?: TimeSignature
+): Record<LowerDifficulty, ChartNote[]> {
+  const bar = timeSignature ? beatsPerMeasure(timeSignature) : BEATS_PER_MEASURE;
   return {
-    hard: downchartDifficulty(extreme, "hard"),
-    normal: downchartDifficulty(extreme, "normal"),
-    easy: downchartDifficulty(extreme, "easy"),
+    hard: downchartDifficulty(extreme, "hard", bar),
+    normal: downchartDifficulty(extreme, "normal", bar),
+    easy: downchartDifficulty(extreme, "easy", bar),
   };
 }
 
 /** Fill empty lower difficulties from Extreme; leaves hand-edited charts untouched. */
 export function chartsWithAutoDownchart(
-  charts: Record<"easy" | "normal" | "hard" | "extreme", ChartNote[]>
+  charts: Record<"easy" | "normal" | "hard" | "extreme", ChartNote[]>,
+  timeSignature?: TimeSignature
 ): Record<"easy" | "normal" | "hard" | "extreme", ChartNote[]> {
   if (charts.extreme.length === 0) return charts;
 
@@ -172,7 +204,7 @@ export function chartsWithAutoDownchart(
     charts.hard.length === 0 || charts.normal.length === 0 || charts.easy.length === 0;
   if (!needs) return charts;
 
-  const generated = generateLowerDifficulties(charts.extreme);
+  const generated = generateLowerDifficulties(charts.extreme, timeSignature);
   return {
     extreme: charts.extreme,
     hard: charts.hard.length > 0 ? charts.hard : generated.hard,

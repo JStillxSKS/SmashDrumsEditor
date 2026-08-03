@@ -33,6 +33,7 @@ import { buildSongIni } from "../utils/songIniIO";
 import {
   chartsFromMeta,
   createEmptyMeta,
+  getTimeSignature,
   parseMetaJson,
   prepareMetaForExport,
 } from "../utils/metaIO";
@@ -53,8 +54,12 @@ import {
   beatToTick,
   beatsEqual,
   clampPixelsPerTick,
+  normalizeTimeSignature,
   snapBeat,
   snapTick,
+  stepSnapTicks,
+  ticksPerMeasure,
+  type TimeSignature,
 } from "../utils/resolution";
 import { editorAudioContext } from "../utils/editorAudioContext";
 import { editorAudioPlayer, syncEditorAudioPlayerFromState } from "../utils/editorAudioPlayer";
@@ -176,6 +181,9 @@ type EditorState = {
   setStrength: (s: 0 | 1 | 2) => void;
   setEditorTool: (tool: EditorTool) => void;
   setSnapTicks: (ticks: number) => void;
+  /** Coarser (−1) or finer (+1) snap: measure → 1/4 → 1/8 → 1/16 → 1/32 → 1/64 */
+  stepSnap: (direction: -1 | 1) => void;
+  setTimeSignature: (ts: TimeSignature) => void;
   setScrollTick: (tick: number) => void;
   setPixelsPerTick: (v: number) => void;
   setWaveScale: (v: number) => void;
@@ -195,6 +203,12 @@ type EditorState = {
   setAudioSource: (source: AudioSource) => void;
   loadMeta: (file: File) => Promise<void>;
   loadChart: (file: File) => Promise<void>;
+  /** Clear session for a new Indies OS project; optional audio + title seed. */
+  startFreshSession: (opts?: {
+    audioFile?: File;
+    songTitle?: string;
+    artist?: string;
+  }) => Promise<void>;
   exportIndies: () => Promise<void>;
   publishToIndiesDb: (explicit?: boolean) => Promise<PublishResult>;
   exportChart: () => void;
@@ -505,7 +519,30 @@ export const useEditorStore = create<EditorState>((set, get) => {
   setSelectedLane: (selectedLane) => set({ selectedLane }),
   setStrength: (strength) => set({ strength }),
   setEditorTool: (editorTool) => set({ editorTool }),
-  setSnapTicks: (snapTicks) => set({ snapTicks }),
+  setSnapTicks: (snapTicks) => set({ snapTicks: Math.max(1, Math.round(snapTicks)) }),
+  stepSnap: (direction) => {
+    const { snapTicks, meta } = get();
+    const ts = getTimeSignature(meta);
+    set({ snapTicks: stepSnapTicks(snapTicks, direction, ts) });
+  },
+  setTimeSignature: (ts) => {
+    const state = get();
+    const next = normalizeTimeSignature(ts);
+    const prev = getTimeSignature(state.meta);
+    if (prev.numerator === next.numerator && prev.denominator === next.denominator) {
+      return;
+    }
+    recordHistory("meta");
+    const prevMeasure = ticksPerMeasure(prev);
+    const nextMeasure = ticksPerMeasure(next);
+    // If snap was “whole measure”, keep it on the new measure length.
+    const snapTicks =
+      state.snapTicks === prevMeasure ? nextMeasure : state.snapTicks;
+    set({
+      meta: { ...state.meta, TimeSignature: next },
+      snapTicks,
+    });
+  },
   setScrollTick: (scrollTick) => set({ scrollTick: Math.max(0, scrollTick) }),
   setPixelsPerTick: (pixelsPerTick) => {
     const ppt = clampPixelsPerTick(pixelsPerTick);
@@ -777,18 +814,79 @@ export const useEditorStore = create<EditorState>((set, get) => {
       if (!ok) return;
     }
     recordHistory("chart");
-    const generated = generateLowerDifficulties(charts.extreme);
+    const generated = generateLowerDifficulties(
+      charts.extreme,
+      getTimeSignature(get().meta)
+    );
     set({
       charts: { ...charts, ...generated },
       clipboardMessage: `Auto-charted ${generated.easy.length} Easy · ${generated.normal.length} Normal · ${generated.hard.length} Hard`,
     });
   },
 
+  startFreshSession: async (opts) => {
+    const prevAudio = get().audioUrl;
+    const prevDrums = get().drumsAudioUrl;
+    const prevCover = get().coverImageUrl;
+    if (prevAudio) URL.revokeObjectURL(prevAudio);
+    if (prevDrums) URL.revokeObjectURL(prevDrums);
+    if (prevCover) URL.revokeObjectURL(prevCover);
+
+    editorAudioPlayer.pause();
+    const meta = createEmptyMeta();
+    if (opts?.songTitle?.trim()) meta.NameSong = opts.songTitle.trim();
+    if (opts?.artist?.trim()) meta.NameArtist = opts.artist.trim();
+
+    set({
+      meta,
+      charts: { easy: [], normal: [], hard: [], extreme: [] },
+      difficulty: "extreme",
+      selectedLane: 1,
+      strength: 1,
+      editorTool: "edit",
+      scrollTick: 0,
+      currentTime: 0,
+      isPlaying: false,
+      audioUrl: null,
+      audioFileName: null,
+      audioFile: null,
+      audioBuffer: null,
+      coverImageUrl: null,
+      coverImageFileName: null,
+      coverImageFile: null,
+      drumsAudioUrl: null,
+      drumsAudioFileName: null,
+      drumsAudioBuffer: null,
+      audioSource: "song",
+      duration: 0,
+      bpmDetecting: false,
+      bpmConfidence: null,
+      tapTempoActive: false,
+      tapTempoTimes: [],
+      placementMode: null,
+      sourceIndiesPath: null,
+      clipboardMessage: opts?.audioFile
+        ? `New project — ${opts.songTitle || opts.audioFile.name}`
+        : "New project",
+    });
+    resetHistoryStack();
+    syncEditorAudioPlayerFromState(get());
+
+    if (opts?.audioFile) {
+      await get().loadAudio(opts.audioFile);
+      if (opts.songTitle?.trim()) {
+        set((s) => ({
+          meta: { ...s.meta, NameSong: opts.songTitle!.trim() },
+        }));
+      }
+    }
+  },
+
   exportIndies: async () => {
     if (get().exportingIndies) return;
 
     let { meta, charts, audioFile, audioBuffer, coverImageFile } = get();
-    const filled = chartsWithAutoDownchart(charts);
+    const filled = chartsWithAutoDownchart(charts, getTimeSignature(meta));
     if (filled !== charts) {
       charts = filled;
       set({ charts });
@@ -842,7 +940,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     }
 
     let { meta, charts, audioFile, audioBuffer, coverImageFile } = get();
-    const filled = chartsWithAutoDownchart(charts);
+    const filled = chartsWithAutoDownchart(charts, getTimeSignature(meta));
     if (filled !== charts) {
       charts = filled;
       set({ charts });
@@ -907,7 +1005,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
 
   exportChart: async () => {
     let { meta, charts, audioFileName, duration } = get();
-    const filled = chartsWithAutoDownchart(charts);
+    const filled = chartsWithAutoDownchart(charts, getTimeSignature(meta));
     if (filled !== charts) {
       charts = filled;
       set({ charts });

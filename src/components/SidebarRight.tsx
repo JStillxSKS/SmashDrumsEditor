@@ -4,17 +4,21 @@ import {
   PLAYBACK_SPEED_MAX,
   PLAYBACK_SPEED_MIN,
 } from "../utils/audioPlayback";
+import { getTimeSignature } from "../utils/metaIO";
 import {
   MAX_PIXELS_PER_TICK,
   MIN_PIXELS_PER_TICK,
   RESOLUTION,
-  SNAP_OPTIONS,
-  VISUAL_GRID_TICKS,
+  formatTimeSignature,
+  snapLabel,
+  snapOptions,
+  visualGridStep,
 } from "../utils/resolution";
 import { CollapsibleSection } from "./CollapsibleSection";
 
 export function SidebarRight() {
   const {
+    meta,
     snapTicks,
     pixelsPerTick,
     waveScale,
@@ -25,6 +29,8 @@ export function SidebarRight() {
     drumsAudioFileName,
     audioFileName,
     setSnapTicks,
+    stepSnap,
+    setTimeSignature,
     setPixelsPerTick,
     setWaveScale,
     setSongVolume,
@@ -33,26 +39,97 @@ export function SidebarRight() {
     setAudioSource,
   } = useEditorStore();
 
+  const timeSig = getTimeSignature(meta);
+  const options = snapOptions(timeSig);
+  const gridStep = visualGridStep(snapTicks, timeSig);
   const beatSpacingPx = Math.round(RESOLUTION * pixelsPerTick);
-  const gridRowPx = Math.round(VISUAL_GRID_TICKS * pixelsPerTick);
+  const gridRowPx = Math.round(gridStep * pixelsPerTick);
+  const snapText = snapLabel(snapTicks, timeSig);
+
+  // Keep select valid if measure length changed mid-session
+  const selectValue = options.some((o) => o.ticks === snapTicks)
+    ? snapTicks
+    : options.find((o) => o.ticks === 240)?.ticks ?? 240;
 
   return (
     <aside className="sidebar sidebar-right">
       <CollapsibleSection title="View" badge={`${beatSpacingPx}px/beat`} defaultOpen>
         <div className="panel-section">
-          <p className="panel-section-title">Snap</p>
-          <select value={snapTicks} onChange={(e) => setSnapTicks(Number(e.target.value))}>
-            {SNAP_OPTIONS.map((opt) => (
-              <option key={opt.ticks} value={opt.ticks}>
-                {opt.label} ({opt.ticks}t)
+          <p className="panel-section-title">Time signature</p>
+          <select
+            value={formatTimeSignature(timeSig)}
+            onChange={(e) => {
+              const [n, d] = e.target.value.split("/").map(Number);
+              setTimeSignature({ numerator: n, denominator: d });
+            }}
+            title="Bar length for measure lines, labels, and CH export TS"
+          >
+            {[
+              "4/4",
+              "3/4",
+              "2/4",
+              "5/4",
+              "6/4",
+              "7/4",
+              "6/8",
+              "9/8",
+              "12/8",
+              "5/8",
+              "7/8",
+            ].map((label) => (
+              <option key={label} value={label}>
+                {label}
               </option>
             ))}
           </select>
+          <p className="hint hint-inline">
+            Measure lines &amp; snap-to-bar use {formatTimeSignature(timeSig)}. Default
+            4/4 is safe for Smash Drums.
+          </p>
         </div>
 
         <div className="panel-section">
           <p className="panel-section-title">
-            Zoom · beat {beatSpacingPx}px · 1/8 row {gridRowPx}px
+            Snap · grid shows {snapText}
+            {gridStep !== snapTicks ? ` (lines every ${gridStep}t)` : ""}
+          </p>
+          <select
+            value={selectValue}
+            onChange={(e) => setSnapTicks(Number(e.target.value))}
+          >
+            {options.map((opt) => (
+              <option key={`${opt.label}-${opt.ticks}`} value={opt.ticks}>
+                {opt.label} ({opt.ticks}t)
+              </option>
+            ))}
+          </select>
+          <div className="zoom-btn-row" role="group" aria-label="Snap resolution">
+            <button
+              type="button"
+              className="btn"
+              title="Coarser snap (fewer grid lines)"
+              onClick={() => stepSnap(-1)}
+            >
+              −
+            </button>
+            <button
+              type="button"
+              className="btn"
+              title="Finer snap — 1/16, 1/32, 1/64 (more tick lines)"
+              onClick={() => stepSnap(1)}
+            >
+              +
+            </button>
+          </div>
+          <p className="hint hint-inline">
+            − coarser · + finer (1/8 → 1/16 → 1/32 → 1/64). Highway draws tick lines at
+            this resolution so you can see them.
+          </p>
+        </div>
+
+        <div className="panel-section">
+          <p className="panel-section-title">
+            Zoom · beat {beatSpacingPx}px · grid row {gridRowPx}px
           </p>
           <input
             type="range"

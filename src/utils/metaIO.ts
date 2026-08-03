@@ -14,7 +14,17 @@ import {
 import { normalizeChartNotes, sortChartNotes } from "./chartNotes";
 import { getSongOffset } from "./offset";
 import { serializeMetaJson } from "./metaSerialize";
+import {
+  DEFAULT_TIME_SIGNATURE,
+  normalizeTimeSignature,
+  type TimeSignature,
+} from "./resolution";
 import { normalizeSongTimingForGame, sortTimingAnchors } from "./timing";
+
+/** Effective meter for a meta document (defaults to 4/4). */
+export function getTimeSignature(meta: Pick<MetaJson, "TimeSignature">): TimeSignature {
+  return normalizeTimeSignature(meta.TimeSignature ?? DEFAULT_TIME_SIGNATURE);
+}
 
 function normalizeSongPhase(raw: Partial<SongPhase>): SongPhase {
   const phase = clampPhaseId(raw.phase ?? 1);
@@ -33,6 +43,7 @@ export function createEmptyMeta(): MetaJson {
     NameCharter: "Chart Editor",
     FilePath: "",
     SongOffsetSeconds: 0,
+    TimeSignature: { ...DEFAULT_TIME_SIGNATURE },
     SongTiming: [
       { beat: 0, timer: 0 },
       { beat: 4, timer: 2 },
@@ -231,6 +242,9 @@ export function parseMetaJson(raw: string): MetaJson {
     IndiesDbMapId: data.IndiesDbMapId?.trim() || undefined,
     FilePath: data.FilePath ?? "",
     SongOffsetSeconds: offset,
+    TimeSignature: normalizeTimeSignature(
+      data.TimeSignature ?? base.TimeSignature ?? DEFAULT_TIME_SIGNATURE
+    ),
     SongTiming: gameTiming,
     SongPhases:
       data.SongPhases && data.SongPhases.length >= 1

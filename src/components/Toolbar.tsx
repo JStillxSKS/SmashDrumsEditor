@@ -27,6 +27,7 @@ import {
   offsetFromMs,
   OFFSET_NUDGE_FINE_MS,
 } from "../utils/offset";
+import { getTimeSignature } from "../utils/metaIO";
 import { RESOLUTION, beatToTick, formatTick } from "../utils/resolution";
 import { bpmFromAnchors } from "../utils/timing";
 import { beatToTime, timeToBeat } from "../utils/timing";
@@ -445,7 +446,8 @@ export function Toolbar({
             : `Audio (${playingSource}) ${fmt(audioTime)}`}
         </span>
         <span className="beatcode">
-          Chart {fmt(Math.max(0, chartTime))} · {formatTick(tick)}
+          Chart {fmt(Math.max(0, chartTime))} ·{" "}
+          {formatTick(tick, getTimeSignature(meta))}
         </span>
         <button
           className="btn btn-sm"

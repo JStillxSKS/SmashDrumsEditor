@@ -1,0 +1,408 @@
+/* Indies OS shell — Home / Studio / Exports */
+
+.shell-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.shell-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-shrink: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255, 184, 0, 0.06), transparent);
+}
+
+.shell-nav__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.shell-nav__mark {
+  font-family: var(--font-display, "Orbitron", system-ui, sans-serif);
+  font-weight: 800;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  color: #000;
+  background: linear-gradient(135deg, #ffb800, #ff6b1a);
+  padding: 6px 8px;
+  border-radius: 3px;
+}
+
+.shell-nav__titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.shell-nav__name {
+  font-family: var(--font-display, "Orbitron", system-ui, sans-serif);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.shell-nav__sub {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(48vw, 420px);
+}
+
+.shell-nav__tabs {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.shell-nav__tab {
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.shell-nav__tab:hover {
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.shell-nav__tab.is-active {
+  color: #000;
+  background: var(--accent, #ffb800);
+  border-color: var(--accent, #ffb800);
+}
+
+.shell-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.shell-body--pane {
+  overflow: auto;
+}
+
+.shell-body--studio {
+  overflow: hidden;
+}
+
+.shell-home,
+.shell-exports {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 28px 20px 48px;
+}
+
+.shell-home__eyebrow {
+  margin: 0 0 8px;
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent, #ffb800);
+  font-weight: 600;
+}
+
+.shell-home__title {
+  margin: 0 0 10px;
+  font-family: var(--font-display, "Orbitron", system-ui, sans-serif);
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.shell-home__lead {
+  margin: 0 0 24px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  max-width: 40rem;
+}
+
+.shell-home__lead code {
+  color: var(--accent, #ffb800);
+  font-size: 0.9em;
+}
+
+.shell-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 110px;
+  margin-bottom: 22px;
+  border: 1px dashed rgba(255, 184, 0, 0.35);
+  border-radius: 8px;
+  background: rgba(255, 184, 0, 0.04);
+  color: var(--text-muted);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.shell-dropzone strong {
+  color: var(--text);
+  font-size: 1.05rem;
+}
+
+.shell-dropzone.is-hot {
+  border-color: var(--accent, #ffb800);
+  background: rgba(255, 184, 0, 0.12);
+}
+
+.shell-dropzone.is-busy {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.shell-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.shell-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.12s;
+}
+
+.shell-tile:hover:not(:disabled) {
+  border-color: rgba(255, 184, 0, 0.45);
+  transform: translateY(-1px);
+}
+
+.shell-tile:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.shell-tile--primary {
+  border-color: rgba(255, 184, 0, 0.4);
+  background: linear-gradient(145deg, rgba(255, 184, 0, 0.14), rgba(232, 38, 42, 0.08));
+}
+
+.shell-tile__kicker {
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent, #ffb800);
+  font-weight: 700;
+}
+
+.shell-tile__label {
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.shell-tile__hint {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.shell-recents__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.shell-recents__head h2 {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.shell-recents__head span {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.shell-recents__empty,
+.shell-recents__note {
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
+.shell-recents__list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shell-recent {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.shell-recent:hover {
+  border-color: rgba(255, 184, 0, 0.4);
+}
+
+.shell-recent__title {
+  font-weight: 700;
+}
+
+.shell-recent__meta {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.shell-exports__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.shell-btn {
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.shell-btn:hover:not(:disabled) {
+  border-color: rgba(255, 184, 0, 0.45);
+}
+
+.shell-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.shell-btn--primary {
+  background: var(--accent, #ffb800);
+  color: #000;
+  border-color: var(--accent, #ffb800);
+}
+
+.shell-exports__path {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.shell-exports__path code,
+.shell-exports__note code {
+  color: var(--accent, #ffb800);
+}
+
+.shell-exports__toast {
+  color: var(--accent, #ffb800);
+  font-size: 0.9rem;
+}
+
+.shell-exports__error {
+  color: #ff6b6b;
+}
+
+.shell-exports__note {
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.shell-exports__list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shell-export-row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.shell-export-row:hover:not(:disabled) {
+  border-color: rgba(255, 184, 0, 0.4);
+}
+
+.shell-export-row:disabled {
+  opacity: 0.6;
+}
+
+.shell-export-row__name {
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.92rem;
+}
+
+.shell-export-row__meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Studio inherits existing app chrome; nav sits above */
+.shell-body--studio .app {
+  height: 100%;
+}
+
+.shell-body--studio .app-shell {
+  height: 100%;
+  min-height: 0;
+}

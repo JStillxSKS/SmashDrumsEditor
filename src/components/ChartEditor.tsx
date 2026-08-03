@@ -14,13 +14,15 @@ import {
 import { useEditorStore } from "../store/useEditorStore";
 import {
   RESOLUTION,
-  TICKS_PER_MEASURE,
   VISUAL_GRID_TICKS,
   beatToTick,
   formatTick,
   snapTick,
+  ticksPerMeasure,
   visualGridRowPixels,
+  visualGridStep,
 } from "../utils/resolution";
+import { getTimeSignature } from "../utils/metaIO";
 import {
   getPlaybackAudioTime,
   seekChartTime,
@@ -186,18 +188,27 @@ function hexToRgba(hex: string, alpha: number): string {
 
 function lighten(hex: string, amt: number): string {
   const n = parseInt(hex.slice(1), 16);
-  const r = Math.min(255, ((n >> 16) & 255) + amt);
-  const g = Math.min(255, ((n >> 8) & 255) + amt);
-  const b = Math.min(255, (n & 255) + amt);
+  const clamp = (c: number) => Math.max(0, Math.min(255, c + amt));
+  const r = clamp((n >> 16) & 255);
+  const g = clamp((n >> 8) & 255);
+  const b = clamp(n & 255);
   return `rgb(${r},${g},${b})`;
 }
 
 function noteBoxSize(laneW: number, rowPx: number) {
-  const pad = 4;
-  const w = laneW - pad * 2;
-  const maxH = Math.max(16, rowPx - pad * 2);
-  const h = maxH * 0.78;
-  return { w, h, r: Math.min(6, h * 0.22) };
+  const pad = 3;
+  // Pixel-align width so edges stay crisp on HiDPI canvases.
+  const w = Math.max(10, Math.round(laneW - pad * 2));
+  const maxH = Math.max(14, rowPx - pad * 2);
+  const h = Math.max(10, Math.round(maxH * 0.72));
+  // Tighter corners = sharper “gem tile” look.
+  const r = Math.min(4, Math.round(h * 0.16));
+  return { w, h, r };
+}
+
+/** Snap gem center to device pixels for cleaner edges. */
+function alignGemCenter(cx: number, cy: number) {
+  return { cx: Math.round(cx) + 0.5, cy: Math.round(cy) + 0.5 };
 }
 
 /** Editor-only hit pulse — not exported to chart files */
@@ -214,8 +225,8 @@ function noteHitIntensity(elapsedMs: number, lite = false): number {
 
 function drawGemNote(
   ctx: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
+  cxIn: number,
+  cyIn: number,
   laneW: number,
   color: string,
   strength: 0 | 1 | 2,
@@ -223,6 +234,7 @@ function drawGemNote(
   hitIntensity = 0,
   lite = false
 ) {
+  const { cx, cy } = alignGemCenter(cxIn, cyIn);
   const { w, h, r } = noteBoxSize(laneW, rowPx);
   const x = cx - w / 2;
   const y = cy - h / 2;
@@ -230,37 +242,47 @@ function drawGemNote(
   const isBurning = strength === 2;
 
   ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  // Prefer crisp stroke joins on rounded rects.
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
 
   if (hitIntensity > 0) {
-    const scale = 1 + hitIntensity * (lite ? 0.35 : 0.62);
+    // Smaller pop — less mushy scale bloom.
+    const scale = 1 + hitIntensity * (lite ? 0.22 : 0.32);
     ctx.translate(cx, cy);
     ctx.scale(scale, scale);
     ctx.translate(-cx, -cy);
   }
 
   if (isCrystal) {
-    ctx.globalAlpha *= lite ? 0.6 : 0.52;
+    ctx.globalAlpha *= lite ? 0.72 : 0.78;
   }
 
-  // Mobile: flat fills, no shadows/gradients (big GPU win)
+  // Mobile: flat fills, thin outline (still readable, cheap)
   if (lite) {
     ctx.beginPath();
     ctx.roundRect(x, y, w, h, r);
     ctx.fillStyle = isCrystal
-      ? hexToRgba(color, 0.45)
+      ? hexToRgba(color, 0.5)
       : isBurning
-        ? lighten(color, 25)
+        ? lighten(color, 18)
         : color;
     ctx.fill();
-    if (isBurning || hitIntensity > 0.25) {
-      ctx.strokeStyle =
-        hitIntensity > 0.25
-          ? `rgba(255,255,255,${0.45 + hitIntensity * 0.4})`
-          : hexToRgba(lighten(color, 40), 0.85);
-      ctx.lineWidth = isBurning ? 2 : 1.5;
-      ctx.stroke();
-    }
-    const dotR = Math.max(2, Math.min(w, h) * 0.12);
+    ctx.strokeStyle = isBurning
+      ? hexToRgba(lighten(color, 55), 0.95)
+      : hitIntensity > 0.2
+        ? `rgba(255,255,255,${0.55 + hitIntensity * 0.35})`
+        : "rgba(0,0,0,0.55)";
+    ctx.lineWidth = isBurning ? 1.75 : 1.25;
+    ctx.stroke();
+    // Inner rim for definition
+    ctx.strokeStyle = "rgba(255,255,255,0.22)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(x + 1.25, y + 1.25, w - 2.5, h - 2.5, Math.max(0, r - 1));
+    ctx.stroke();
+    const dotR = Math.max(1.75, Math.min(w, h) * 0.1);
     ctx.beginPath();
     ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
     ctx.fillStyle = "#ffffff";
@@ -269,35 +291,34 @@ function drawGemNote(
     return;
   }
 
-  const baseBlur = isBurning ? 36 : isCrystal ? 5 : 14;
-
-  if (isBurning) {
-    ctx.shadowColor = hexToRgba(lighten(color, 50), 0.85);
-    ctx.shadowBlur = baseBlur + 20 + hitIntensity * 16;
+  // Soft outer halo only for burning / hit — tight, not foggy.
+  if (isBurning || hitIntensity > 0.2) {
+    ctx.shadowColor = isBurning
+      ? hexToRgba(lighten(color, 40), 0.55)
+      : "rgba(255,255,255,0.45)";
+    ctx.shadowBlur = isBurning ? 8 + hitIntensity * 6 : 4 + hitIntensity * 8;
     ctx.beginPath();
-    ctx.roundRect(x - 4, y - 4, w + 8, h + 8, r + 3);
-    ctx.fillStyle = hexToRgba(color, 0.22 + hitIntensity * 0.12);
+    ctx.roundRect(x, y, w, h, r);
+    ctx.fillStyle = hexToRgba(color, isBurning ? 0.35 : 0.2);
     ctx.fill();
     ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
   }
 
-  ctx.shadowColor = hitIntensity > 0 ? "#ffffff" : isBurning ? lighten(color, 40) : color;
-  ctx.shadowBlur = baseBlur + hitIntensity * 48;
-
-  const body = ctx.createLinearGradient(x, y, x + w, y + h);
+  // Body: short vertical gradient (flat enough to stay sharp).
+  const body = ctx.createLinearGradient(x, y, x, y + h);
   if (isCrystal) {
-    body.addColorStop(0, hexToRgba(lighten(color, 90), 0.62));
-    body.addColorStop(0.35, hexToRgba(color, 0.38));
-    body.addColorStop(1, hexToRgba(color, 0.24));
+    body.addColorStop(0, hexToRgba(lighten(color, 70), 0.75));
+    body.addColorStop(0.55, hexToRgba(color, 0.55));
+    body.addColorStop(1, hexToRgba(color, 0.4));
   } else if (isBurning) {
-    body.addColorStop(0, lighten(color, 110 + hitIntensity * 40));
-    body.addColorStop(0.3, lighten(color, 35));
-    body.addColorStop(0.7, color);
-    body.addColorStop(1, hexToRgba(color, 0.92));
+    body.addColorStop(0, lighten(color, 55 + hitIntensity * 20));
+    body.addColorStop(0.45, lighten(color, 12));
+    body.addColorStop(1, color);
   } else {
-    body.addColorStop(0, lighten(color, 80 + hitIntensity * 40));
-    body.addColorStop(0.35, color);
-    body.addColorStop(1, color + "cc");
+    body.addColorStop(0, lighten(color, 42 + hitIntensity * 18));
+    body.addColorStop(0.5, color);
+    body.addColorStop(1, lighten(color, -18));
   }
 
   ctx.beginPath();
@@ -305,66 +326,59 @@ function drawGemNote(
   ctx.fillStyle = body;
   ctx.fill();
 
-  ctx.shadowBlur = 0;
-  const shine = ctx.createLinearGradient(x, y, x, y + h * 0.6);
-  const shineAlpha = isCrystal ? 0.28 : 0.55 + hitIntensity * 0.35;
-  shine.addColorStop(0, `rgba(255,255,255,${shineAlpha + hitIntensity * 0.2})`);
+  // Dark outer edge — primary “crisp” outline
+  ctx.strokeStyle = isBurning
+    ? hexToRgba(lighten(color, 30), 0.95)
+    : "rgba(0,0,0,0.65)";
+  ctx.lineWidth = isBurning ? 1.75 : 1.35;
+  ctx.beginPath();
+  ctx.roundRect(x + 0.5, y + 0.5, w - 1, h - 1, Math.max(0, r - 0.5));
+  ctx.stroke();
+
+  // Bright inner rim
+  ctx.strokeStyle = isCrystal
+    ? hexToRgba(lighten(color, 80), 0.55)
+    : `rgba(255,255,255,${isBurning ? 0.42 : 0.32 + hitIntensity * 0.25})`;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(x + 1.75, y + 1.75, w - 3.5, h - 3.5, Math.max(0, r - 1.5));
+  ctx.stroke();
+
+  // Thin top highlight (not a big soft blotch)
+  const shine = ctx.createLinearGradient(x, y, x, y + h * 0.45);
+  shine.addColorStop(0, `rgba(255,255,255,${isCrystal ? 0.35 : 0.48 + hitIntensity * 0.2})`);
   shine.addColorStop(1, "rgba(255,255,255,0)");
   ctx.beginPath();
-  ctx.roundRect(x + 3, y + 2, w - 6, h * 0.45, r - 2);
+  ctx.roundRect(x + 2.5, y + 2, w - 5, Math.max(3, h * 0.32), Math.max(0, r - 2));
   ctx.fillStyle = shine;
   ctx.fill();
 
-  if (isCrystal) {
-    ctx.strokeStyle = hexToRgba(lighten(color, 60), 0.7);
+  if (isBurning) {
+    ctx.strokeStyle = `rgba(255, 210, 100, ${0.55 + hitIntensity * 0.25})`;
     ctx.lineWidth = 1.25;
     ctx.beginPath();
-    ctx.roundRect(x, y, w, h, r);
+    ctx.roundRect(x - 1.5, y - 1.5, w + 3, h + 3, r + 1.5);
     ctx.stroke();
   }
 
-  if (isBurning || hitIntensity > 0.35) {
-    ctx.shadowColor = isBurning ? "rgba(255, 150, 40, 0.95)" : color;
-    ctx.shadowBlur = isBurning ? 14 + hitIntensity * 28 : 0;
-    ctx.strokeStyle =
-      hitIntensity > 0.35
-        ? `rgba(255,255,255,${0.35 + hitIntensity * 0.45})`
-        : isBurning
-          ? `rgba(255, 200, 90, ${0.82 + hitIntensity * 0.12})`
-          : "rgba(255,180,60,0.6)";
-    ctx.lineWidth = isBurning ? 2.25 : 1 + hitIntensity;
-    ctx.beginPath();
-    ctx.roundRect(x - 1, y - 1, w + 2, h + 2, r + 1);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    if (isBurning) {
-      ctx.strokeStyle = hexToRgba(color, 0.3);
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.roundRect(x - 4, y - 4, w + 8, h + 8, r + 3);
-      ctx.stroke();
-    }
-  }
-
-  const dotR = Math.max(2.5, Math.min(w, h) * 0.13);
+  // Center pip — small, hard edge
+  const dotR = Math.max(1.75, Math.min(w, h) * 0.095);
+  ctx.beginPath();
+  ctx.arc(cx, cy, dotR + 0.75, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.fill();
   ctx.beginPath();
   ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
-  ctx.fillStyle = isCrystal ? "rgba(255,255,255,0.55)" : "#ffffff";
+  ctx.fillStyle = isCrystal ? "rgba(255,255,255,0.7)" : "#ffffff";
   ctx.fill();
 
   if (hitIntensity > 0) {
-    const ringR = Math.max(w, h) * (0.55 + hitIntensity * 0.45);
+    const ringR = Math.max(w, h) * (0.48 + hitIntensity * 0.28);
     ctx.beginPath();
     ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(255,255,255,${0.25 + hitIntensity * 0.55})`;
-    ctx.lineWidth = 2 + hitIntensity * 3;
+    ctx.strokeStyle = `rgba(255,255,255,${0.2 + hitIntensity * 0.45})`;
+    ctx.lineWidth = 1.5 + hitIntensity;
     ctx.stroke();
-
-    ctx.fillStyle = `rgba(255,255,255,${hitIntensity * 0.35})`;
-    ctx.beginPath();
-    ctx.roundRect(x - 4, y - 4, w + 8, h + 8, r + 4);
-    ctx.fill();
   }
 
   ctx.restore();
@@ -373,17 +387,18 @@ function drawGemNote(
 /** Strike-bar receptor — hollow frame drawn outside neutral note bounds */
 function drawGemReceptor(
   ctx: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
+  cxIn: number,
+  cyIn: number,
   laneW: number,
   color: string,
   rowPx: number,
   hitIntensity = 0,
   lite = false
 ) {
+  const { cx, cy } = alignGemCenter(cxIn, cyIn);
   const { w: noteW, h: noteH, r: noteR } = noteBoxSize(laneW, rowPx);
-  const lineWidth = hitIntensity > 0 ? 3.5 + hitIntensity * (lite ? 0.4 : 0.75) : 3.5;
-  const gap = 2;
+  const lineWidth = hitIntensity > 0 ? 2.25 + hitIntensity * (lite ? 0.35 : 0.5) : 2.25;
+  const gap = 2.5;
   const outset = gap + lineWidth / 2;
   const frameW = noteW + outset * 2;
   const frameH = noteH + outset * 2;
@@ -392,27 +407,147 @@ function drawGemReceptor(
   const r = noteR + gap;
 
   ctx.save();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
 
   if (hitIntensity > 0) {
-    const scale = 1 + hitIntensity * (lite ? 0.28 : 0.5);
+    const scale = 1 + hitIntensity * (lite ? 0.18 : 0.28);
     ctx.translate(cx, cy);
     ctx.scale(scale, scale);
     ctx.translate(-cx, -cy);
   }
 
+  // Tight colored outer edge
   if (!lite) {
-    ctx.shadowColor = hitIntensity > 0 ? "#ffffff" : color;
-    ctx.shadowBlur = hitIntensity > 0 ? 18 + hitIntensity * 42 : 10;
+    ctx.shadowColor = hitIntensity > 0 ? "rgba(255,255,255,0.55)" : hexToRgba(color, 0.45);
+    ctx.shadowBlur = hitIntensity > 0 ? 6 + hitIntensity * 10 : 4;
   }
   ctx.strokeStyle =
     hitIntensity > 0
-      ? `rgba(255,255,255,${0.7 + hitIntensity * 0.3})`
-      : hexToRgba(color, 0.9);
+      ? `rgba(255,255,255,${0.75 + hitIntensity * 0.25})`
+      : hexToRgba(color, 0.95);
   ctx.lineWidth = lineWidth;
-
   ctx.beginPath();
   ctx.roundRect(x, y, frameW, frameH, r);
   ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Inner dark stroke for contrast on the highway
+  ctx.strokeStyle = "rgba(0,0,0,0.5)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(x + 1.25, y + 1.25, frameW - 2.5, frameH - 2.5, Math.max(0, r - 1));
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/**
+ * Horizontal links between same-beat notes (chords / double-hits).
+ * Draws behind gems so alignment is obvious without covering the notes.
+ */
+function drawSameBeatLinks(
+  ctx: CanvasRenderingContext2D,
+  notes: ChartNote[],
+  scrollTick: number,
+  ppt: number,
+  sy: number,
+  trackX: number,
+  laneW: number,
+  laneGap: number,
+  rowPx: number,
+  lite = false
+) {
+  // Group by exact tick so only true same-time hits connect.
+  const byTick = new Map<number, ChartNote[]>();
+  for (const note of notes) {
+    const tick = beatToTick(note.Beat);
+    const list = byTick.get(tick);
+    if (list) list.push(note);
+    else byTick.set(tick, [note]);
+  }
+
+  const halfW = noteBoxSize(laneW, rowPx).w / 2;
+
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  for (const [tick, group] of byTick) {
+    if (group.length < 2) continue;
+
+    const y = Math.round(sy - (tick - scrollTick) * ppt) + 0.5;
+    // Only draw for notes on the visible highway (above strike bar).
+    if (y < LANE_HEADER_H - 20 || y > sy + 6) continue;
+
+    // Left → right by highway column.
+    const cols = group
+      .map((n) => ({
+        note: n,
+        col: laneColumnIndex(n.Id),
+        color: laneById(n.Id).color,
+      }))
+      .sort((a, b) => a.col - b.col);
+
+    // De-dupe same lane (shouldn't happen, but avoid double lines).
+    const unique: typeof cols = [];
+    for (const item of cols) {
+      if (unique.length === 0 || unique[unique.length - 1].col !== item.col) {
+        unique.push(item);
+      }
+    }
+    if (unique.length < 2) continue;
+
+    for (let i = 0; i < unique.length - 1; i++) {
+      const left = unique[i];
+      const right = unique[i + 1];
+      const x0 = laneCenter(trackX, left.col, laneW, laneGap) + halfW - 1;
+      const x1 = laneCenter(trackX, right.col, laneW, laneGap) - halfW + 1;
+      if (x1 - x0 < 2) continue;
+
+      // Gradient bridge between the two lane colors.
+      const grad = ctx.createLinearGradient(x0, y, x1, y);
+      grad.addColorStop(0, hexToRgba(left.color, lite ? 0.55 : 0.75));
+      grad.addColorStop(0.5, "rgba(255,255,255,0.55)");
+      grad.addColorStop(1, hexToRgba(right.color, lite ? 0.55 : 0.75));
+
+      // Subtle under-shadow for contrast on dark highway
+      if (!lite) {
+        ctx.strokeStyle = "rgba(0,0,0,0.45)";
+        ctx.lineWidth = 3.5;
+        ctx.beginPath();
+        ctx.moveTo(x0, y);
+        ctx.lineTo(x1, y);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = lite ? 2 : 2.25;
+      ctx.beginPath();
+      ctx.moveTo(x0, y);
+      ctx.lineTo(x1, y);
+      ctx.stroke();
+
+      // Tiny center pip marks exact shared beat alignment
+      const midX = (x0 + x1) / 2;
+      ctx.beginPath();
+      ctx.arc(midX, y, lite ? 1.5 : 2, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255,255,255,0.75)";
+      ctx.fill();
+    }
+
+    // Thin horizontal guide through the whole chord span (helps multi-lane checks).
+    if (unique.length >= 3 && !lite) {
+      const xLeft = laneCenter(trackX, unique[0].col, laneW, laneGap);
+      const xRight = laneCenter(trackX, unique[unique.length - 1].col, laneW, laneGap);
+      ctx.strokeStyle = "rgba(255,255,255,0.12)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(xLeft, y);
+      ctx.lineTo(xRight, y);
+      ctx.stroke();
+    }
+  }
 
   ctx.restore();
 }
@@ -836,32 +971,46 @@ export function ChartEditor() {
         ctx.restore();
       }
 
-      // 1/8 visual grid — snap only affects note placement
-      const gridStep = VISUAL_GRID_TICKS;
+      // Grid follows snap so 1/16 · 1/32 · 1/64 ticks are visible (not only 1/8).
+      const timeSig = getTimeSignature(meta);
+      const measureTicks = ticksPerMeasure(timeSig);
+      const gridStep = visualGridStep(snapTicks, timeSig);
       const viewTop = scrollTick + Math.ceil((sy - LANE_HEADER_H) / ppt);
       const viewBottom = scrollTick - Math.ceil((h - sy + 80) / ppt) - RESOLUTION;
-      const segStart = snapTick(viewBottom, VISUAL_GRID_TICKS);
-      const segEnd = viewTop + VISUAL_GRID_TICKS;
+      const stripeStep = Math.max(gridStep, VISUAL_GRID_TICKS);
+      const segStart = snapTick(viewBottom, stripeStep);
+      const segEnd = viewTop + stripeStep;
 
-      for (let tick = segStart; tick <= segEnd; tick += VISUAL_GRID_TICKS) {
-        const yTop = sy - (tick + VISUAL_GRID_TICKS - scrollTick) * ppt;
+      for (let tick = segStart; tick <= segEnd; tick += stripeStep) {
+        const yTop = sy - (tick + stripeStep - scrollTick) * ppt;
         const yBottom = sy - (tick - scrollTick) * ppt;
         const rowH = yBottom - yTop;
         if (rowH < 6 || yBottom < LANE_HEADER_H - gridRowPx || yTop > h + gridRowPx || yBottom > sy + 2)
           continue;
 
-        if (Math.floor(tick / VISUAL_GRID_TICKS) % 2 !== 0) {
+        if (Math.floor(tick / stripeStep) % 2 !== 0) {
           ctx.fillStyle = "rgba(255, 255, 255, 0.012)";
           ctx.fillRect(trackX, yTop, trackW, rowH);
         }
       }
 
-      for (let tick = snapTick(viewBottom, gridStep); tick <= viewTop; tick += gridStep) {
+      // Skip drawing if lines would be denser than ~2px (zoom-out safeguard).
+      const linePx = gridStep * ppt;
+      const drawFineGrid = linePx >= 2;
+
+      for (
+        let tick = snapTick(viewBottom, gridStep);
+        tick <= viewTop && drawFineGrid;
+        tick += gridStep
+      ) {
         const y = sy - (tick - scrollTick) * ppt;
         if (y < LANE_HEADER_H - 4 || y > sy + 2) continue;
 
-        const isMeasure = tick % TICKS_PER_MEASURE === 0;
+        const isMeasure = measureTicks > 0 && tick % measureTicks === 0;
         const isBeat = tick % RESOLUTION === 0;
+        const isEighth = tick % VISUAL_GRID_TICKS === 0;
+        const isSixteenth = tick % 120 === 0;
+        const isThirtySecond = tick % 60 === 0;
 
         if (isMeasure) {
           ctx.strokeStyle = "rgba(255,255,255,0.28)";
@@ -869,9 +1018,19 @@ export function ChartEditor() {
         } else if (isBeat) {
           ctx.strokeStyle = "rgba(255,255,255,0.16)";
           ctx.lineWidth = 1.5;
-        } else {
-          ctx.strokeStyle = `rgba(${T.magentaRgb}, 0.16)`;
+        } else if (isEighth) {
+          ctx.strokeStyle = `rgba(${T.magentaRgb}, 0.18)`;
           ctx.lineWidth = 1;
+        } else if (isSixteenth) {
+          ctx.strokeStyle = `rgba(${T.magentaRgb}, 0.12)`;
+          ctx.lineWidth = 1;
+        } else if (isThirtySecond) {
+          ctx.strokeStyle = `rgba(${T.magentaRgb}, 0.08)`;
+          ctx.lineWidth = 0.75;
+        } else {
+          // 1/64 (or finer custom)
+          ctx.strokeStyle = `rgba(${T.magentaRgb}, 0.05)`;
+          ctx.lineWidth = 0.5;
         }
 
         ctx.beginPath();
@@ -879,11 +1038,24 @@ export function ChartEditor() {
         ctx.lineTo(trackX + trackW, y);
         ctx.stroke();
 
-        if (isBeat) {
-          ctx.fillStyle = isMeasure ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.34)";
-          ctx.font = isMeasure ? "bold 10px JetBrains Mono, monospace" : "10px JetBrains Mono, monospace";
+        // Labels: always on measures/beats; on 1/8+ when zoomed enough for readability.
+        const showLabel =
+          isMeasure ||
+          isBeat ||
+          (isEighth && linePx >= 10) ||
+          (isSixteenth && linePx >= 14 && !isEighth);
+
+        if (showLabel) {
+          ctx.fillStyle = isMeasure
+            ? "rgba(255,255,255,0.6)"
+            : isBeat
+              ? "rgba(255,255,255,0.34)"
+              : "rgba(255,255,255,0.22)";
+          ctx.font = isMeasure
+            ? "bold 10px JetBrains Mono, monospace"
+            : "10px JetBrains Mono, monospace";
           ctx.textAlign = "left";
-          ctx.fillText(formatTick(tick), 6, y + 4);
+          ctx.fillText(formatTick(tick, timeSig), 6, y + 4);
         }
       }
 
@@ -946,6 +1118,20 @@ export function ChartEditor() {
         const receptorHit = laneHitIntensity.get(lane.id) ?? 0;
         drawGemReceptor(ctx, cx, sy, laneW, color, gridRowPx, receptorHit, lite);
       });
+
+      // Same-beat chord links — behind gems so multi-lane hits read as aligned pairs.
+      drawSameBeatLinks(
+        ctx,
+        notes,
+        scrollTick,
+        ppt,
+        sy,
+        trackX,
+        laneW,
+        laneGap,
+        gridRowPx,
+        lite
+      );
 
       // Notes (gems) — only above strike bar so scrolling feels like a highway, not a sliding sheet
       for (const note of notes) {
@@ -1040,6 +1226,7 @@ export function ChartEditor() {
     meta.SongTiming,
     meta.SongPhases,
     meta.SongOffsetSeconds,
+    meta.TimeSignature,
     difficulty,
     charts,
     selectedLane,

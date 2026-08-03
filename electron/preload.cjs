@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openOutputDir: () => ipcRenderer.invoke("output:open"),
   getFilePath: (file) => webUtils.getPathForFile(file),
   pickImportFile: () => ipcRenderer.invoke("import:pickFile"),
+  pickAudioFile: () => ipcRenderer.invoke("import:pickAudio"),
+  listIndiesFiles: () => ipcRenderer.invoke("output:listIndies"),
   readSiblingFile: (sourceFilePath, siblingName) =>
     ipcRenderer.invoke("fs:readSibling", { sourceFilePath, siblingName }),
 });

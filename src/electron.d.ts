@@ -36,6 +36,14 @@ declare global {
         name: string;
         bytes: number[];
       } | null>;
+      pickAudioFile: () => Promise<{
+        path: string;
+        name: string;
+        bytes: number[];
+      } | null>;
+      listIndiesFiles: () => Promise<
+        { name: string; path: string; mtime: number; size: number }[]
+      >;
       readSiblingFile: (
         sourceFilePath: string,
         siblingName: string

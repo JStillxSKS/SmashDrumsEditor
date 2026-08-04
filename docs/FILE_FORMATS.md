@@ -88,7 +88,7 @@ Each note in `meta.json` chart arrays:
 |-------|------|-------------|
 | `Beat` | number | Beat position (480 ticks per beat internally) |
 | `Id` | 0–5 | Smash Drums instrument ID |
-| `Strength` | 0–2 | 0 = Crystal, 1 = Neutral, 2 = Burning |
+| `Strength` | 0–2 | 0 = Crystal (Arcade only), 1 = Neutral, 2 = Burning (Arcade only). Classic play ignores non-Neutral strength; the editor’s **Classic** mode keeps charts Neutral so those notes never land in Classic packs. |
 
 ## Instrument IDs
 

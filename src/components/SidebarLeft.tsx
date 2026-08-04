@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
 import { DIFFICULTIES, STRENGTHS } from "../types/meta";
 import { useEditorStore } from "../store/useEditorStore";
-import { extremeChartRequired } from "../utils/chartNotes";
+import {
+  countArcadeStrengthNotes,
+  extremeChartRequired,
+} from "../utils/chartNotes";
 import { computeChartStats } from "../utils/chartStats";
 import { seekChartTime } from "../utils/audioElement";
 import {
@@ -24,9 +27,12 @@ export function SidebarLeft() {
     charts,
     difficulty,
     strength,
+    chartingMode,
     setMetaField,
     setDifficulty,
     setStrength,
+    setChartingMode,
+    stripArcadeStrengths,
     setOffset,
     nudgeOffset,
     setOffsetFromPlayhead,
@@ -43,6 +49,10 @@ export function SidebarLeft() {
   const offsetMs = offsetToMs(offset);
   const noteCount = charts[difficulty].length;
   const diffLabel = DIFFICULTIES.find((d) => d.key === difficulty)?.label;
+  const arcadeStrengthCount = useMemo(
+    () => countArcadeStrengthNotes(charts),
+    [charts]
+  );
   const stats = useMemo(
     () => computeChartStats(charts, meta, duration),
     [charts, meta, duration]
@@ -160,20 +170,66 @@ export function SidebarLeft() {
           </p>
         </div>
 
+        <div className="panel-section">
+          <p className="panel-section-title">Play mode</p>
+          <div className="btn-group btn-group-equal">
+            <button
+              type="button"
+              className={chartingMode === "classic" ? "btn active" : "btn"}
+              onClick={() => setChartingMode("classic")}
+              title="Classic: Neutral notes only. Crystal and Burning are never placed or exported."
+            >
+              Classic
+            </button>
+            <button
+              type="button"
+              className={chartingMode === "arcade" ? "btn active" : "btn"}
+              onClick={() => setChartingMode("arcade")}
+              title="Arcade: Crystal, Neutral, and Burning strength notes allowed."
+            >
+              Arcade
+            </button>
+          </div>
+          <p className="hint hint-inline">
+            {chartingMode === "classic"
+              ? "Classic ignores Crystal/Burning — charts stay Neutral only."
+              : "Arcade can use Crystal (soft) and Burning (hard) notes."}
+          </p>
+        </div>
+
         <div className="panel-section mobile-hide-strength">
           <p className="panel-section-title">Strength</p>
           <div className="btn-group btn-group-equal">
-            {STRENGTHS.map((s) => (
-              <button
-                key={s.value}
-                type="button"
-                className={strength === s.value ? "btn active" : "btn"}
-                onClick={() => setStrength(s.value)}
-              >
-                {s.label}
-              </button>
-            ))}
+            {STRENGTHS.map((s) => {
+              const locked = chartingMode === "classic" && s.value !== 1;
+              return (
+                <button
+                  key={s.value}
+                  type="button"
+                  className={strength === s.value ? "btn active" : "btn"}
+                  disabled={locked}
+                  title={
+                    locked
+                      ? "Crystal and Burning are Arcade-only. Switch to Arcade to use them."
+                      : s.label
+                  }
+                  onClick={() => setStrength(s.value)}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
           </div>
+          {chartingMode === "classic" && arcadeStrengthCount > 0 ? (
+            <button
+              type="button"
+              className="btn"
+              style={{ width: "100%", marginTop: "0.5rem" }}
+              onClick={() => stripArcadeStrengths()}
+            >
+              Convert {arcadeStrengthCount} Crystal/Burning → Neutral
+            </button>
+          ) : null}
         </div>
       </CollapsibleSection>
 

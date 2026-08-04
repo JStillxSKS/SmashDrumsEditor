@@ -41,7 +41,10 @@ The editor has three main areas:
 - **Artist / Title / Charter** — song metadata shown in-game
 - **Album art** — loaded from Indies packages or added manually (500×500 PNG on export)
 - **Difficulty** — Easy, Normal, Hard, Extreme (each has its own note chart)
-- **Strength** — Crystal (0), Neutral (1), or Burning (2) for newly placed notes
+- **Play mode** — **Classic** (default) or **Arcade**
+  - **Classic** — Neutral notes only. Crystal and Burning are never placed, pasted, or exported.
+  - **Arcade** — Crystal (soft), Neutral, and Burning (hard) strength notes allowed.
+- **Strength** — Crystal (0), Neutral (1), or Burning (2). Locked to Neutral in Classic mode (Arcade-only mechanics).
 - **Extreme required** — at least one Extreme note is required before export
 
 ### Left sidebar — Offset

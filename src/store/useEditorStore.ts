@@ -15,7 +15,14 @@ import {
   sortSongPhases,
 } from "../types/meta";
 
-import { validateIndiesCharts } from "../utils/chartNotes";
+import {
+  countArcadeStrengthNotes,
+  neutralizeCharts,
+  strengthForChartingMode,
+  validateIndiesCharts,
+  type ChartingMode,
+  NEUTRAL_STRENGTH,
+} from "../utils/chartNotes";
 import { chartsWithAutoDownchart, generateLowerDifficulties } from "../utils/downchart";
 import { buildChartText, isChartFile, parseChartFile } from "../utils/chartIO";
 import {
@@ -117,6 +124,11 @@ type EditorState = {
   difficulty: Difficulty;
   selectedLane: 0 | 1 | 2 | 3 | 4 | 5;
   strength: 0 | 1 | 2;
+  /**
+   * Charting target mode.
+   * Classic = Neutral notes only (Crystal/Burning are Arcade-only).
+   */
+  chartingMode: ChartingMode;
   /** Touch/mobile: single-tap places notes (edit) or seeks (seek). */
   editorTool: EditorTool;
   snapTicks: number;
@@ -179,6 +191,9 @@ type EditorState = {
   setDifficulty: (d: Difficulty) => void;
   setSelectedLane: (lane: 0 | 1 | 2 | 3 | 4 | 5) => void;
   setStrength: (s: 0 | 1 | 2) => void;
+  setChartingMode: (mode: ChartingMode) => void;
+  /** Force all notes to Neutral (Classic-safe). */
+  stripArcadeStrengths: () => number;
   setEditorTool: (tool: EditorTool) => void;
   setSnapTicks: (ticks: number) => void;
   /** Coarser (−1) or finer (+1) snap: measure → 1/4 → 1/8 → 1/16 → 1/32 → 1/64 */
@@ -275,6 +290,8 @@ export const useEditorStore = create<EditorState>((set, get) => {
   difficulty: "extreme",
   selectedLane: 1,
   strength: 1,
+  /** Default Classic so Crystal/Burning cannot sneak into non-Arcade charts. */
+  chartingMode: "classic",
   editorTool: "edit",
   snapTicks: 240,
   scrollTick: 0,
@@ -517,7 +534,57 @@ export const useEditorStore = create<EditorState>((set, get) => {
 
   setDifficulty: (difficulty) => set({ difficulty }),
   setSelectedLane: (selectedLane) => set({ selectedLane }),
-  setStrength: (strength) => set({ strength }),
+  setStrength: (strength) => {
+    const mode = get().chartingMode;
+    if (mode === "classic" && strength !== NEUTRAL_STRENGTH) {
+      set({
+        strength: NEUTRAL_STRENGTH,
+        clipboardMessage: "Classic mode: only Neutral strength (Crystal/Burning are Arcade-only)",
+      });
+      return;
+    }
+    set({ strength });
+  },
+  setChartingMode: (chartingMode) => {
+    if (chartingMode === "classic") {
+      const stripped = countArcadeStrengthNotes(get().charts);
+      if (stripped > 0) {
+        recordHistory("chart");
+        set({
+          chartingMode,
+          strength: NEUTRAL_STRENGTH,
+          charts: neutralizeCharts(get().charts),
+          clipboardMessage: `Classic mode: converted ${stripped} Crystal/Burning notes → Neutral`,
+        });
+        return;
+      }
+      set({
+        chartingMode,
+        strength: NEUTRAL_STRENGTH,
+        clipboardMessage: "Classic mode: Neutral notes only",
+      });
+      return;
+    }
+    set({
+      chartingMode,
+      clipboardMessage: "Arcade mode: Crystal / Neutral / Burning available",
+    });
+  },
+  stripArcadeStrengths: () => {
+    const { charts } = get();
+    const stripped = countArcadeStrengthNotes(charts);
+    if (stripped === 0) {
+      set({ clipboardMessage: "No Crystal/Burning notes to convert" });
+      return 0;
+    }
+    recordHistory("chart");
+    set({
+      charts: neutralizeCharts(charts),
+      strength: NEUTRAL_STRENGTH,
+      clipboardMessage: `Converted ${stripped} Crystal/Burning notes → Neutral`,
+    });
+    return stripped;
+  },
   setEditorTool: (editorTool) => set({ editorTool }),
   setSnapTicks: (snapTicks) => set({ snapTicks: Math.max(1, Math.round(snapTicks)) }),
   stepSnap: (direction) => {
@@ -885,7 +952,14 @@ export const useEditorStore = create<EditorState>((set, get) => {
   exportIndies: async () => {
     if (get().exportingIndies) return;
 
-    let { meta, charts, audioFile, audioBuffer, coverImageFile } = get();
+    let { meta, charts, audioFile, audioBuffer, coverImageFile, chartingMode } = get();
+    if (chartingMode === "classic") {
+      const stripped = countArcadeStrengthNotes(charts);
+      if (stripped > 0) {
+        charts = neutralizeCharts(charts);
+        set({ charts, strength: NEUTRAL_STRENGTH });
+      }
+    }
     const filled = chartsWithAutoDownchart(charts, getTimeSignature(meta));
     if (filled !== charts) {
       charts = filled;
@@ -939,7 +1013,14 @@ export const useEditorStore = create<EditorState>((set, get) => {
       throw new Error("Publish already in progress.");
     }
 
-    let { meta, charts, audioFile, audioBuffer, coverImageFile } = get();
+    let { meta, charts, audioFile, audioBuffer, coverImageFile, chartingMode } = get();
+    if (chartingMode === "classic") {
+      const stripped = countArcadeStrengthNotes(charts);
+      if (stripped > 0) {
+        charts = neutralizeCharts(charts);
+        set({ charts, strength: NEUTRAL_STRENGTH });
+      }
+    }
     const filled = chartsWithAutoDownchart(charts, getTimeSignature(meta));
     if (filled !== charts) {
       charts = filled;
@@ -1004,7 +1085,14 @@ export const useEditorStore = create<EditorState>((set, get) => {
   },
 
   exportChart: async () => {
-    let { meta, charts, audioFileName, duration } = get();
+    let { meta, charts, audioFileName, duration, chartingMode } = get();
+    if (chartingMode === "classic") {
+      const stripped = countArcadeStrengthNotes(charts);
+      if (stripped > 0) {
+        charts = neutralizeCharts(charts);
+        set({ charts, strength: NEUTRAL_STRENGTH });
+      }
+    }
     const filled = chartsWithAutoDownchart(charts, getTimeSignature(meta));
     if (filled !== charts) {
       charts = filled;
@@ -1041,7 +1129,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
   },
 
   toggleNote: (beat, id) => {
-    const { difficulty, strength, charts, snapTicks, scrollTick } = get();
+    const { difficulty, strength, charts, snapTicks, scrollTick, chartingMode } = get();
     const snapped = snapBeat(beat, snapTicks);
     const strikeTick = snapTick(scrollTick, snapTicks);
     const noteTick = beatToTick(snapped);
@@ -1058,7 +1146,11 @@ export const useEditorStore = create<EditorState>((set, get) => {
     } else {
       if (noteTick < strikeTick) return;
       recordHistory("chart");
-      notes.push({ Beat: snapped, Id: id, Strength: strength });
+      notes.push({
+        Beat: snapped,
+        Id: id,
+        Strength: strengthForChartingMode(strength, chartingMode),
+      });
     }
     notes.sort((a, b) => a.Beat - b.Beat || a.Id - b.Id);
     set({ charts: { ...charts, [difficulty]: notes } });
@@ -1167,9 +1259,15 @@ export const useEditorStore = create<EditorState>((set, get) => {
     }
 
     recordHistory("chart");
-    const { difficulty, charts, snapTicks } = get();
+    const { difficulty, charts, snapTicks, chartingMode } = get();
     const targetTick = snapTick(Math.max(0, strikeTick), snapTicks);
-    const pasted = pastePayloadAtStrikeTick(payload, targetTick);
+    let pasted = pastePayloadAtStrikeTick(payload, targetTick);
+    if (chartingMode === "classic") {
+      pasted = pasted.map((note) => ({
+        ...note,
+        Strength: strengthForChartingMode(note.Strength, "classic"),
+      }));
+    }
     const merged = mergeNotes(charts[difficulty], pasted);
     set({
       charts: { ...charts, [difficulty]: merged },

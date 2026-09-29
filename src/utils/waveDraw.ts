@@ -12,6 +12,13 @@ export type WaveDrawStyle = {
 };
 
 function hexToRgb(hex: string): [number, number, number] {
+  // Accept both "#rrggbb" and "rgb(r,g,b)" (mobile call sites pass the latter).
+  if (hex.startsWith("rgb")) {
+    const parts = hex.match(/\d+/g);
+    if (parts && parts.length >= 3) {
+      return [Number(parts[0]), Number(parts[1]), Number(parts[2])];
+    }
+  }
   const n = parseInt(hex.slice(1), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
@@ -70,7 +77,8 @@ export function drawMirroredWaveEnvelope(
 
   const halves = visible.map((sample) => ({
     pos: sample.pos,
-    half: Math.max(1.25, Math.pow(sample.amp, 0.9) * maxHalf),
+    // Higher floor keeps quiet transients visible instead of flickering out.
+    half: Math.max(2, Math.pow(sample.amp, 0.9) * maxHalf),
   }));
 
   const topPath = new Path2D();
@@ -144,11 +152,11 @@ export function drawMirroredWaveEnvelope(
     const coreGrad = ctx.createLinearGradient(cx - maxHalf * 0.35, 0, cx + maxHalf * 0.35, 0);
     if (tint) {
       coreGrad.addColorStop(0, rgba(tint, 0));
-      coreGrad.addColorStop(0.5, rgba(tint, 0.38 * intensity));
+      coreGrad.addColorStop(0.5, rgba(tint, 0.48 * intensity));
       coreGrad.addColorStop(1, rgba(tint, 0));
     } else {
       coreGrad.addColorStop(0, "rgba(120, 240, 255, 0)");
-      coreGrad.addColorStop(0.5, "rgba(220, 255, 255, 0.55)");
+      coreGrad.addColorStop(0.5, "rgba(220, 255, 255, 0.62)");
       coreGrad.addColorStop(1, "rgba(120, 240, 255, 0)");
     }
     ctx.fillStyle = coreGrad;
@@ -176,9 +184,16 @@ export function drawMirroredWaveEnvelope(
     ctx.fill(coreBot);
   } else {
     const grad = ctx.createLinearGradient(cx - maxHalf, 0, cx + maxHalf, 0);
-    grad.addColorStop(0, "rgba(35, 55, 80, 0.04)");
-    grad.addColorStop(0.5, "rgba(65, 95, 130, 0.28)");
-    grad.addColorStop(1, "rgba(35, 55, 80, 0.04)");
+    if (tint) {
+      // Keep lanes color-coded ahead of the playhead instead of generic blue-gray.
+      grad.addColorStop(0, rgba(tint, 0.02 * intensity));
+      grad.addColorStop(0.5, rgba(tint, 0.2 * intensity));
+      grad.addColorStop(1, rgba(tint, 0.02 * intensity));
+    } else {
+      grad.addColorStop(0, "rgba(35, 55, 80, 0.04)");
+      grad.addColorStop(0.5, "rgba(65, 95, 130, 0.28)");
+      grad.addColorStop(1, "rgba(35, 55, 80, 0.04)");
+    }
     ctx.fillStyle = grad;
     ctx.fill(topPath);
     ctx.fill(botPath);
@@ -190,11 +205,11 @@ export function drawMirroredWaveEnvelope(
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   ctx.strokeStyle = tint
-    ? rgba(tint, (mode === "past" ? 0.38 : 0.18) * intensity)
+    ? rgba(tint, (mode === "past" ? 0.46 : 0.26) * intensity)
     : mode === "past"
-      ? "rgba(255, 210, 80, 0.42)"
-      : "rgba(80, 110, 150, 0.22)";
-  ctx.lineWidth = mode === "past" ? 1 : 0.65;
+      ? "rgba(255, 210, 80, 0.5)"
+      : "rgba(80, 110, 150, 0.28)";
+  ctx.lineWidth = mode === "past" ? 1.25 : 0.75;
 
   ctx.beginPath();
   halves.forEach((point, i) => {

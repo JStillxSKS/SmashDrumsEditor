@@ -777,11 +777,15 @@ export function ChartEditor() {
       }
 
       const laneHitIntensity = new Map<DrumId, number>();
+      const laneHitProgress = new Map<DrumId, number>();
       for (const [key, start] of noteHitRef.current) {
-        const intensity = noteHitIntensity(now - start, lite);
+        const elapsed = now - start;
+        const intensity = noteHitIntensity(elapsed, lite);
         if (intensity <= 0) continue;
         const id = Number(key.split(":")[1]) as DrumId;
         laneHitIntensity.set(id, Math.max(laneHitIntensity.get(id) ?? 0, intensity));
+        const p = Math.min(1, elapsed / hitMaxMs);
+        laneHitProgress.set(id, Math.max(laneHitProgress.get(id) ?? 0, p));
       }
 
       const blinkPhase = phaseBlinkRef.current.blinkPhase;
@@ -1137,7 +1141,23 @@ export function ChartEditor() {
       for (const note of notes) {
         const tick = beatToTick(note.Beat);
         const y = sy - (tick - scrollTick) * ppt;
-        if (y < LANE_HEADER_H - 20 || y > sy + 6) continue;
+        const hitStart = noteHitRef.current.get(noteHitKey(note));
+        const hit =
+          hitStart !== undefined ? noteHitIntensity(now - hitStart, lite) : 0;
+
+        // Struck notes pin into the receptor on the strike line and squash like
+        // they physically hit the bar — the "on centre / on beat" confirmation.
+        let drawY = y;
+        let squash = 0;
+        let hitFade = 1;
+        if (hitStart !== undefined) {
+          const p = Math.min(1, (now - hitStart) / hitMaxMs);
+          squash = (1 - p) * (1 - p);
+          hitFade = 1 - Math.pow(p, 1.5);
+          drawY = sy;
+        } else if (y < LANE_HEADER_H - 20 || y > sy + 6) {
+          continue;
+        }
 
         const rowsAway = Math.max(0, (sy - y) / Math.max(gridRowPx, 1));
         const approach =
@@ -1146,18 +1166,20 @@ export function ChartEditor() {
         const lane = laneById(note.Id);
         const col = laneColumnIndex(note.Id);
         const cx = laneCenter(trackX, col, laneW, laneGap);
-        const hitStart = noteHitRef.current.get(noteHitKey(note));
-        const hit =
-          hitStart !== undefined ? noteHitIntensity(now - hitStart, lite) : 0;
 
         ctx.save();
-        if (!lite && approach < 0.98) {
+        if (hitStart !== undefined) {
+          ctx.globalAlpha *= hitFade;
+          ctx.translate(cx, sy);
+          ctx.scale(1 + squash * 0.38, 1 - squash * 0.48);
+          ctx.translate(-cx, -sy);
+        } else if (!lite && approach < 0.98) {
           ctx.globalAlpha *= approach;
           ctx.translate(cx, y);
           ctx.scale(approach, approach);
           ctx.translate(-cx, -y);
         }
-        drawGemNote(ctx, cx, y, laneW, lane.color, note.Strength, gridRowPx, hit, lite);
+        drawGemNote(ctx, cx, drawY, laneW, lane.color, note.Strength, gridRowPx, hit, lite);
         ctx.restore();
       }
 
@@ -1175,6 +1197,19 @@ export function ChartEditor() {
       ctx.stroke();
       ctx.shadowBlur = 0;
       ctx.restore();
+
+      // On-beat confirmation: the strike line itself lights up across the lane
+      // that just crossed a note — reads as "hit centre, on the line".
+      for (const lane of DRUM_LANES) {
+        const p = laneHitProgress.get(lane.id);
+        if (p === undefined) continue;
+        const a = (1 - p) * (1 - p);
+        const lx = laneLeft(trackX, laneColumnIndex(lane.id), laneW, laneGap);
+        ctx.fillStyle = hexToRgba(lane.color, 0.5 * a);
+        ctx.fillRect(lx + 2, sy - 3, laneW - 4, 6);
+        ctx.fillStyle = `rgba(255,255,255,${0.55 * a})`;
+        ctx.fillRect(lx + 2, sy - 0.75, laneW - 4, 1.5);
+      }
 
       // Phase blink overlay (highway flash when strike bar crosses a phase)
       if (isPhaseBlink && blinkColor) {

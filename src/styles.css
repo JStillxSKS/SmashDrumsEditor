@@ -3,13 +3,14 @@
 :root {
   color-scheme: dark;
   font-family: "Inter", system-ui, sans-serif;
-  --bg: #000000;
-  --bg-elevated: #000000;
-  --bg-panel: #000000;
-  --border: rgba(255, 255, 255, 0.07);
-  --border-hover: rgba(255, 255, 255, 0.14);
-  --text: #f0f0f5;
-  --text-muted: #8888a0;
+  --bg: #0a0c11;
+  --bg-elevated: #12151d;
+  --bg-panel: #0e1118;
+  --bg-input: #171b26;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.16);
+  --text: #f2f3f7;
+  --text-muted: #9aa0b4;
   --accent: #ffb800;
   --accent-2: #e8262a;
   --accent-glow: rgba(255, 184, 0, 0.28);
@@ -46,6 +47,35 @@ body {
   color: var(--text);
 }
 
+::selection {
+  background: rgba(255, 184, 0, 0.3);
+  color: #fff;
+}
+
+/* Slim, quiet scrollbars everywhere */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
 .app {
   display: flex;
   flex-direction: column;
@@ -63,7 +93,7 @@ body {
   flex-wrap: wrap;
   gap: 10px 16px;
   padding: 10px 16px;
-  background: rgba(0, 0, 0, 0.94);
+  background: var(--bg-elevated);
   backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -156,10 +186,11 @@ body {
   flex-wrap: wrap;
   gap: 10px;
   padding: 6px 14px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-hover);
   border-radius: 40px;
   flex: 0 1 auto;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
 }
 
 .toolbar-right {
@@ -237,7 +268,7 @@ body {
 
 .toolbar-bpm-input {
   width: 68px;
-  background: #000000;
+  background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
@@ -362,7 +393,7 @@ body {
   padding: 0;
   border: 1px solid rgba(255, 184, 0, 0.28);
   border-radius: var(--radius-sm);
-  background: rgba(0, 0, 0, 0.92);
+  background: rgba(14, 17, 24, 0.92);
   color: var(--accent);
   cursor: pointer;
   display: flex;
@@ -469,7 +500,7 @@ body {
   flex-shrink: 0;
   position: relative;
   border-left: 1px solid rgba(255, 184, 0, 0.22);
-  background: #000000;
+  background: var(--bg-panel);
   cursor: ns-resize;
   user-select: none;
   touch-action: none;
@@ -503,7 +534,7 @@ body {
   max-width: 100%;
   flex: 0 0 auto;
   height: 100%;
-  background: #000000;
+  background: var(--bg);
   backdrop-filter: blur(12px);
   overflow-x: hidden;
   overflow-y: auto;
@@ -527,7 +558,7 @@ body {
   width: 5px;
 }
 .sidebar::-webkit-scrollbar-thumb {
-  background: #1a1a1a;
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 4px;
 }
 
@@ -581,7 +612,7 @@ body {
   overflow: hidden;
   padding: 8px 10px;
   border: none;
-  background: #000000;
+  background: transparent;
   color: var(--text);
   font-family: inherit;
   cursor: pointer;
@@ -590,7 +621,7 @@ body {
 }
 
 .collapsible-header:hover {
-  background: #000000;
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .collapsible-title {
@@ -657,7 +688,7 @@ body {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  background: #000000;
+  background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
@@ -670,7 +701,7 @@ body {
 }
 
 .panel select option {
-  background: #000000;
+  background: var(--bg-elevated);
   color: var(--text);
 }
 
@@ -815,8 +846,8 @@ body {
   padding: 5px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: #000000;
-  color: #ccc;
+  background: rgba(255, 255, 255, 0.045);
+  color: #d5d8e0;
   cursor: pointer;
   font-size: 0.72rem;
   font-weight: 600;
@@ -1344,7 +1375,7 @@ body {
 
 .phase-item {
   padding: 6px 7px;
-  background: #000000;
+  background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   flex-shrink: 0;

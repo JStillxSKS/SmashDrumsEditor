@@ -3,9 +3,10 @@
 @import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap");
 
 .app--future {
-  --bg: #000000;
-  --bg-elevated: #000000;
-  --bg-panel: #000000;
+  --bg: #0a0c11;
+  --bg-elevated: #12151d;
+  --bg-panel: #0e1118;
+  --bg-input: #171b26;
   --border: rgba(255, 184, 0, 0.14);
   --border-hover: rgba(232, 38, 42, 0.4);
   --text: #fff8ee;
@@ -235,7 +236,7 @@
 
 /* Sidebars + HUD panels */
 .app--future .sidebar {
-  background: rgba(0, 0, 0, 0.94);
+  background: rgba(10, 12, 17, 0.94);
   border-color: rgba(255, 184, 0, 0.1);
   backdrop-filter: blur(16px);
 }
@@ -295,7 +296,7 @@
 .app--future .collapsible-header {
   font-family: var(--font-display);
   letter-spacing: 0.1em;
-  background: #000000;
+  background: transparent;
 }
 
 .app--future .collapsible-title {
@@ -313,14 +314,14 @@
 
 .app--future .panel input,
 .app--future .panel select {
-  background: #000000 !important;
+  background: var(--bg-input) !important;
   color: #fff8ee !important;
   -webkit-text-fill-color: #fff8ee;
   color-scheme: dark;
 }
 
 .app--future .toolbar-bpm-input {
-  background: #000000 !important;
+  background: var(--bg-input) !important;
   color: #fff8ee !important;
   -webkit-text-fill-color: #fff8ee !important;
   caret-color: var(--accent);
@@ -328,7 +329,7 @@
 }
 
 .app--future .panel select option {
-  background: #000000;
+  background: var(--bg-elevated);
   color: #fff8ee;
 }
 

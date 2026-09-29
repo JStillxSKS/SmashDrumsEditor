@@ -4,7 +4,15 @@ Smash Drums Editor reads and writes several formats used by Smash Drums Indies c
 
 ## Import
 
-Use **Import** in the toolbar. Accepted extensions: `.indies`, `.json`, `.chart`
+Use **Import** in the toolbar (or drag a file onto the Home screen). Accepted extensions: `.indies`, `.mid` / `.midi`, `.rlrr`, `.json`, `.chart`
+
+### `.mid` / `.midi` (MIDI drum tracks)
+
+Converted in-app to a full chart session — same rule chain as `scripts/midi_to_smash.py`
+(drum-track detection, velocity floors, 1/16 grid snap, 1/8 hi-hat limit, 2-pad chord cap,
+auto-thinned Hard/Normal/Easy, integer-beat tempo maps). Song audio is auto-detected next
+to the MIDI when possible; otherwise load it with **🎵 Song** after import.
+See [MIDI_CONVERT.md](MIDI_CONVERT.md) for details.
 
 ### `.indies` (Smash Drums Indies package)
 
@@ -60,7 +68,7 @@ Downloads a Smash Drums Indies ZIP package containing:
 | File | Description |
 |------|-------------|
 | `meta.json` | Song metadata and all four difficulty charts |
-| `audio.ogg` | Loaded song audio |
+| `audio.ogg` | Loaded song audio — **always real Ogg Vorbis** (non-Ogg sources are transcoded at export) |
 | `cover.png` | Album art (500×500), if set |
 | `preview.wav` | 12-second menu preview clip |
 

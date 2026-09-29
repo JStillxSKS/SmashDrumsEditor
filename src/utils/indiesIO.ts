@@ -2,6 +2,7 @@ import JSZip from "jszip";
 import type { ChartNote, Difficulty, MetaJson } from "../types/meta";
 import { chartsFromMeta, parseMetaJson, prepareMetaForExport } from "./metaIO";
 import { serializeMetaJson } from "./metaSerialize";
+import { ensureOggBlob } from "./audioTranscode";
 import {
   INDIES_AUDIO_FILE,
   INDIES_COVER_FILE,
@@ -160,14 +161,19 @@ export async function buildIndiesZip(options: {
   audioFile: File;
   coverFile: File | null;
   audioBuffer: AudioBuffer;
+  onProgress?: (message: string) => void;
 }): Promise<Blob> {
-  const { meta, charts, audioFile, coverFile, audioBuffer } = options;
+  const { meta, charts, audioFile, coverFile, audioBuffer, onProgress } = options;
   const built = prepareMetaForExport(meta, charts);
-  built.FilePath = "";
+  built.FilePath = INDIES_AUDIO_FILE;
 
   const zip = new JSZip();
   zip.file("meta.json", serializeMetaJson(built));
-  zip.file(INDIES_AUDIO_FILE, await audioFile.arrayBuffer());
+
+  // The game decodes audio.ogg as Ogg Vorbis — transcode MP3/WAV/etc. instead
+  // of writing foreign bytes under an .ogg name.
+  onProgress?.("Converting audio to Ogg Vorbis…");
+  zip.file(INDIES_AUDIO_FILE, await ensureOggBlob(audioFile));
 
   if (coverFile) {
     zip.file(INDIES_COVER_FILE, await imageFileToCoverPng(coverFile));

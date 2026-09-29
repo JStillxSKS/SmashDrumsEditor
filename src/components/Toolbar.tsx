@@ -571,7 +571,7 @@ export function Toolbar({
           <button
             className="file-btn"
             type="button"
-            title="Import .indies, .rlrr (Paradiddle), meta.json, or Clone Hero .chart"
+            title="Import .indies, MIDI, .rlrr (Paradiddle), meta.json, or Clone Hero .chart"
             onClick={() => {
               void (async () => {
                 const file = await pickImportFileDesktop();
@@ -584,12 +584,12 @@ export function Toolbar({
         ) : (
           <label
             className="file-btn"
-            title="Import .indies, .rlrr (Paradiddle), meta.json, or Clone Hero .chart"
+            title="Import .indies, MIDI, .rlrr (Paradiddle), meta.json, or Clone Hero .chart"
           >
             📂 Import
             <input
               type="file"
-              accept=".indies,.rlrr,.json,.chart,application/json,application/zip"
+              accept=".indies,.rlrr,.json,.chart,.mid,.midi,application/json,application/zip"
               hidden
               onChange={(e) => {
                 const f = e.target.files?.[0];

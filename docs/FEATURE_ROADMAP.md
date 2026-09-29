@@ -2,6 +2,13 @@
 
 Full implementation plan for the 18 proposed features, mapped to the current architecture (`useEditorStore`, `ChartEditor` canvas, `waveform.ts`, Electron shell).
 
+> **Status (2026-09-29):** several "not yet shipped" items below have since landed —
+> undo/redo (`src/store/history.ts`), tap tempo (`src/utils/tapTempo.ts`), difficulty
+> downchart (`src/utils/downchart.ts`), note stats (`src/utils/chartStats.ts`), BPM
+> detect, and **native MIDI import** (`src/utils/midiConvert.ts` — imports `.mid` /
+> `.midi` directly, same rule chain as `scripts/midi_to_smash.py`). This document is
+> kept as the original plan; treat the shipped list above as ground truth.
+
 **Already shipped (partial overlap):**
 - Session recovery + draft/autosave (`SessionRecovery`, `useAutosave`, `draftStorage`)
 - Copy/paste + box copy mode (`noteClipboard`, `ChartEditor`)

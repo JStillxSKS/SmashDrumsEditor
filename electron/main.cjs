@@ -102,8 +102,8 @@ ipcMain.handle("import:pickFile", async () => {
     properties: ["openFile"],
     filters: [
       {
-        name: "Smash Drums / Paradiddle / Clone Hero",
-        extensions: ["indies", "rlrr", "json", "chart"],
+        name: "Smash Drums / MIDI / Paradiddle / Clone Hero",
+        extensions: ["indies", "mid", "midi", "rlrr", "json", "chart"],
       },
       { name: "All files", extensions: ["*"] },
     ],

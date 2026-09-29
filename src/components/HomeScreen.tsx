@@ -133,7 +133,9 @@ export function HomeScreen() {
         name.endsWith(".indies") ||
         name.endsWith(".chart") ||
         name.endsWith(".json") ||
-        name.endsWith(".rlrr")
+        name.endsWith(".rlrr") ||
+        name.endsWith(".mid") ||
+        name.endsWith(".midi")
       ) {
         setBusy(true);
         try {

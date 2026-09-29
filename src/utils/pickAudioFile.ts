@@ -58,7 +58,7 @@ export async function pickImportPackageFile(): Promise<FileWithPath | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".indies,.rlrr,.json,.chart,application/json,application/zip";
+    input.accept = ".indies,.rlrr,.json,.chart,.mid,.midi,application/json,application/zip";
     input.style.display = "none";
     document.body.appendChild(input);
     input.addEventListener(

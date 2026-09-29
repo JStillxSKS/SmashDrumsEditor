@@ -6,6 +6,11 @@ Converts General MIDI drum tracks into:
   - .indies package (meta.json + optional audio/cover/preview)
   - meta.json, notes.chart, song.ini folder for editing
 
+Every chart is Smash-playable (always applied, not optional):
+  - max 2 pads at once (chord thinning)
+  - hi-hats at most 1/8 notes (16th spam is dropped)
+  - quiet / bleed tom hits filtered harder than other pads
+
 Examples:
   python midi_to_smash.py song_drums.mid
   python midi_to_smash.py song_drums.mid --audio song.ogg
@@ -20,13 +25,15 @@ import argparse
 import json
 import math
 import re
+import shutil
+import subprocess
 import sys
 import wave
 import zipfile
 from collections import defaultdict
 from pathlib import Path
 
-# Optional deps — only required for audio/cover packaging
+# Optional deps â€” only required for audio/cover packaging
 try:
     import mido
 except ImportError:
@@ -53,19 +60,24 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-# Prefer the Desktop "Smash Drums Editor\output" used by the app
-DEFAULT_OUTPUT = Path.home() / "Desktop" / "Smash Drums Editor" / "output"
-if not DEFAULT_OUTPUT.parent.exists():
-    DEFAULT_OUTPUT = SCRIPT_DIR.parent / "output"
+# Default: Charts/Songs on Desktop if present, else ./output next to this script
+_charts = Path.home() / "Desktop" / "Charts" / "Songs"
+_editor_out = Path.home() / "Desktop" / "Smash Drums Editor" / "output"
+if _charts.is_dir():
+    DEFAULT_OUTPUT = _charts
+elif _editor_out.is_dir():
+    DEFAULT_OUTPUT = _editor_out
+else:
+    DEFAULT_OUTPUT = SCRIPT_DIR / "output"
 
-# GM percussion → Smash instrument Id
+# GM percussion â†’ Smash instrument Id
 # 0 Kick | 1 Snare | 2 Cymbal | 3 Tom | 4 Hi-hat | 5 Clapfire
 GM_TO_SMASH: dict[int, int] = {
     35: 0,  # Acoustic Bass Drum
     36: 0,  # Bass Drum 1
-    37: 1,  # Side Stick → snare-ish
+    37: 1,  # Side Stick â†’ snare-ish
     38: 1,  # Acoustic Snare
-    39: 5,  # Hand Clap → clapfire
+    39: 5,  # Hand Clap â†’ clapfire
     40: 1,  # Electric Snare
     41: 3,  # Low Floor Tom
     42: 4,  # Closed Hi-Hat
@@ -80,9 +92,9 @@ GM_TO_SMASH: dict[int, int] = {
     51: 2,  # Ride Cymbal 1
     52: 2,  # Chinese Cymbal
     53: 2,  # Ride Bell
-    54: 5,  # Tambourine → clapfire
+    54: 5,  # Tambourine â†’ clapfire
     55: 2,  # Splash Cymbal
-    56: 5,  # Cowbell → clapfire
+    56: 5,  # Cowbell â†’ clapfire
     57: 2,  # Crash Cymbal 2
     59: 2,  # Ride Cymbal 2
 }
@@ -118,17 +130,122 @@ GM_NAMES = {
 RESOLUTION = 480
 BEATS_PER_MEASURE = 4
 
+# GM standard drum channel is 10 (1-based) → 9 in 0-based MIDI
+GM_DRUM_CHANNEL = 9
+
+# Kit-core GM pitches (real drums). Bass guitar lives right in the tom range
+# (MIDI 41–50 ≈ E2–D3), so tom pitches alone must never decide "this is drums".
+GM_KICK = frozenset({35, 36})
+GM_SNARE = frozenset({37, 38, 40})
+GM_HAT = frozenset({42, 44, 46})
+GM_CYM = frozenset({49, 51, 52, 53, 55, 57, 59})
+GM_TOM = frozenset({41, 43, 45, 47, 48, 50})
+GM_CLAP = frozenset({39, 54, 56})
+GM_KIT_CORE = GM_KICK | GM_SNARE | GM_HAT | GM_CYM  # not toms
+GM_PERC_ALL = GM_KIT_CORE | GM_TOM | GM_CLAP
+
+# GM melodic bass program numbers (0-based) — never treat as drum kit
+GM_BASS_PROGRAMS = frozenset(range(32, 40))  # Acoustic Bass … Synth Bass 2
+
+# Track-name hints (multi-track MIDIs often put bass + drums on channel 0)
+_DRUM_NAME_RE = re.compile(
+    r"\b(drum|drums|dr\.|kit|perc|percussion|rhythm|drms?)\b", re.I
+)
+_BASS_NAME_RE = re.compile(
+    r"\b(bass|basses|b\.?g\.?|bass\s*g(uit(ar)?)?|basso|contrabass|upright)\b", re.I
+)
+_MELODIC_NAME_RE = re.compile(
+    r"\b(guitar|gtr|piano|keys|synth|lead|vocal|voice|choir|string|violin|"
+    r"cello|organ|pad|brass|sax|flute|melody|solo|harp)\b",
+    re.I,
+)
+
+# Drop very quiet hits by default (ghost notes / bleed become fake toms & clutter)
+DEFAULT_MIN_VELOCITY = 24
+# Toms are especially noisy (and bass-guitar pitches land here) — stricter floor
+DEFAULT_TOM_MIN_VELOCITY = 40
+
+# Smash Drums is not a full kit: more than 2 pads at once is usually unplayable.
+# Real MIDI often stacks kick+snare+hat+crash; we keep the most important pads.
+DEFAULT_MAX_CHORD = 2
+
+# Notes closer together than 1/CHORD_WINDOW_SUBDIV of a beat count as one
+# "stack" for the chord cap. Exact-beat grouping lets a kick@0.00 + snare@0.02
+# + hat@0.03 (all one physical hit in real drumming) escape the cap and become
+# a 3-pad wall after quantization. 32 = 1/32 beat (~16 ms at 120 BPM) — tight
+# enough to never merge real 16th-note runs (62 ms at 120 BPM).
+CHORD_WINDOW_SUBDIV = 32
+
+# Max hi-hat density as note subdivision of a whole note in 4/4:
+#   4 = quarters (gap 1.0 beat), 8 = eighths (gap 0.5), 16 = sixteenths (gap 0.25)
+# MIDI 16th-note hats become unplayable spam in Smash — default to 1/8s.
+DEFAULT_HIHAT_SUBDIVISION = 8
+HIHAT_ID = 4
+
+# Smash play is grid-based, but MIDI drumming is micro-timed: flams and
+# late hits land a few ms off the grid and cram between gridlines in the
+# editor (notes visually "too close together"). Snap every note to the
+# nearest 1/N beat by default — 16 = sixteenths, the densest grid the
+# converter allows anyway. 0 disables snapping (raw MIDI timing).
+DEFAULT_SPACING_SUBDIV = 16
+
+
+def snap_to_grid(
+    notes: list[dict], subdivision: int
+) -> tuple[list[dict], int, int]:
+    """
+    Snap every note to the nearest 1/subdivision beat.
+
+    Max shift is half a grid cell (~11 ms at 165 BPM for 1/16) — inaudible,
+    but notes land ON gridlines in the editor instead of between them.
+    Notes colliding on the same cell + pad are the same physical hit and
+    merge into one. Runs before hat limiting and the chord cap so those
+    see final positions.
+
+    Returns (notes, moved_count, merged_count).
+    """
+    if subdivision <= 0:
+        return sort_notes(notes), 0, 0
+    step = 4.0 / float(subdivision)  # beats per grid cell (16 -> 0.25)
+    out: list[dict] = []
+    moved = 0
+    for n in notes:
+        b = n["Beat"]
+        bq = round(b / step) * step
+        if abs(bq - b) > 1e-9:
+            moved += 1
+        out.append({"Beat": float(bq), "Id": n["Id"], "Strength": NORMAL_STRENGTH})
+    before = len(out)
+    out = dedupe_notes(out)  # same cell + same pad -> one note
+    return out, moved, before - len(out)
+
+# Lower number = keep first when thinning a multi-hit chord
+# Kick/snare form the groove; cymbal accents next; hats/toms/clapfire last.
+NOTE_PRIORITY: dict[int, int] = {
+    0: 0,  # Kick
+    1: 1,  # Snare
+    2: 2,  # Cymbal
+    5: 3,  # Clapfire
+    4: 4,  # Hi-hat
+    3: 5,  # Tom
+}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Smash note strength (meta.json "Strength") — Smash Drums Editor FILE_FORMATS:
+#   0 = Crystal (arcade, hit gently)
+#   1 = Neutral (normal)
+#   2 = Burning (arcade, hit hard)
+# MIDI charts always emit Neutral. Strength 0 is Crystal, not "normal".
+NORMAL_STRENGTH = 1
+
+
 def vel_to_strength(vel: int) -> int:
-    if vel < 70:
-        return 0
-    if vel > 110:
-        return 2
-    return 1
+    """Ignore MIDI velocity; always emit Neutral. Never Crystal or Burning."""
+    return NORMAL_STRENGTH
 
 
 def quantize_beat(beat: float) -> float:
@@ -146,6 +263,129 @@ def dedupe_notes(notes: list[dict]) -> list[dict]:
         if key not in best or n["Strength"] > best[key]["Strength"]:
             best[key] = n
     return sort_notes(list(best.values()))
+
+
+def cap_chord_size(
+    notes: list[dict], max_chord: int = DEFAULT_MAX_CHORD
+) -> tuple[list[dict], int, int]:
+    """
+    Cap simultaneous notes for Smash playability (always applied).
+
+    Real drum MIDI often has 3–4 hits at once (kick + snare + hat + crash).
+    Smash charts must stay at most max_chord pads (default 2).
+
+    Notes within 1/CHORD_WINDOW_SUBDIV of a beat of each other count as ONE
+    stack: a physical drum stroke spreads across ~10–30 ms in MIDI, which
+    quantization turns into adjacent "beats" that would otherwise escape the
+    cap and land as an unhittable 3-pad wall. This never merges distinct
+    16th notes (1/4 beat apart) — it only makes the cap stricter.
+
+    When thinning, keep highest-priority pads (kick/snare first; toms are
+    dropped first as clutter).
+
+    Returns (notes, dropped_note_count, chords_thinned).
+    """
+    max_chord = max(1, int(max_chord))
+    window = 1.0 / CHORD_WINDOW_SUBDIV
+
+    # Greedy clustering by time: a new stack starts when the gap from the
+    # stack's first note exceeds the window.
+    stacks: list[list[dict]] = []
+    cur: list[dict] = []
+    cur_start = 0.0
+    for n in sorted(notes, key=lambda n: (n["Beat"], n["Id"])):
+        if cur and n["Beat"] - cur_start > window + 1e-9:
+            stacks.append(cur)
+            cur = []
+        if not cur:
+            cur_start = n["Beat"]
+        cur.append(n)
+    if cur:
+        stacks.append(cur)
+
+    out: list[dict] = []
+    dropped = 0
+    thinned = 0
+    for group in stacks:
+        if len(group) <= max_chord:
+            out.extend(group)
+            continue
+        # Prefer backbone pads, then stronger hits, then stable Id order
+        ranked = sorted(
+            group,
+            key=lambda n: (
+                NOTE_PRIORITY.get(n["Id"], 99),
+                -int(n.get("Strength", 0)),
+                n["Id"],
+            ),
+        )
+        keep = ranked[:max_chord]
+        dropped += len(group) - len(keep)
+        thinned += 1
+        out.extend(keep)
+    return sort_notes(out), dropped, thinned
+
+
+def subdivision_to_gap_beats(subdivision: int) -> float:
+    """
+    Note subdivision → minimum gap in beats (quarter-note beat).
+    8 → 0.5 (eighths), 4 → 1.0 (quarters), 16 → 0.25 (sixteenths).
+    """
+    subdivision = max(1, int(subdivision))
+    return 4.0 / float(subdivision)
+
+
+def limit_hihat_rate(
+    notes: list[dict],
+    *,
+    subdivision: int = DEFAULT_HIHAT_SUBDIVISION,
+    instrument_id: int = HIHAT_ID,
+) -> tuple[list[dict], int]:
+    """
+    Cap hi-hat density for Smash charts (always applied).
+
+    Real MIDI often has constant 16th-note hats. Charts never keep hats denser
+    than the subdivision (default 8 = 1/8 notes). Hats are grouped into
+    subdivision slots; the loudest hat in each slot is kept.
+    Timing is preserved (no grid snap) so kick/snare grooves stay intact.
+
+    Returns (notes, dropped_hihat_count).
+    """
+    min_gap = subdivision_to_gap_beats(subdivision)
+
+    others = [n for n in notes if n["Id"] != instrument_id]
+    hats = [n for n in notes if n["Id"] == instrument_id]
+    if not hats:
+        return sort_notes(notes), 0
+
+    def hat_score(n: dict, slot_beat: float) -> tuple:
+        # Prefer loud hits closest to the slot start (cleaner 1/8 feel)
+        return (int(n.get("Strength", 0)), -abs(n["Beat"] - slot_beat))
+
+    # One candidate per slot [i*gap, (i+1)*gap)
+    best: dict[int, dict] = {}
+    for h in hats:
+        slot = int(math.floor(h["Beat"] / min_gap + 1e-9))
+        slot_beat = slot * min_gap
+        prev = best.get(slot)
+        if prev is None or hat_score(h, slot_beat) > hat_score(prev, slot_beat):
+            best[slot] = h
+
+    # Enforce min gap for boundary cases (e.g. 0.49 then 0.50)
+    kept: list[dict] = []
+    for slot in sorted(best):
+        h = best[slot]
+        if not kept:
+            kept.append(h)
+            continue
+        gap = h["Beat"] - kept[-1]["Beat"]
+        if gap + 1e-9 >= min_gap:
+            kept.append(h)
+        elif hat_score(h, h["Beat"]) > hat_score(kept[-1], kept[-1]["Beat"]):
+            kept[-1] = h
+
+    dropped = len(hats) - len(kept)
+    return sort_notes(others + kept), dropped
 
 
 def beat_to_tick(beat: float) -> int:
@@ -192,15 +432,27 @@ def apply_density_gate(
     return on, off, (not on and not off)
 
 
+def _priority_sort(notes: list[dict]) -> list[dict]:
+    """Smash-first order: kick/snare/cymbal before hat/tom clutter."""
+    return sorted(
+        notes,
+        key=lambda n: (
+            NOTE_PRIORITY.get(n["Id"], 99),
+            -int(n.get("Strength", 0)),
+            n["Id"],
+        ),
+    )
+
+
 def pick_notes_at_beat(
     diff: str, beat: float, notes: list[dict], on_beat: bool, off_beat: bool
 ) -> list[dict]:
-    sorted_n = sorted(notes, key=lambda n: n["Id"])
+    sorted_n = _priority_sort(notes)
     downbeat = abs(beat_in_measure(beat)) < 1e-6
     kick = 0
 
     def copy_note(note: dict, id_: int) -> dict:
-        return {"Beat": note["Beat"], "Id": id_, "Strength": note["Strength"]}
+        return {"Beat": note["Beat"], "Id": id_, "Strength": NORMAL_STRENGTH}
 
     if diff == "easy":
         if not on_beat:
@@ -235,6 +487,7 @@ def pick_notes_at_beat(
             return ret
         return []
 
+    # hard (and any other non easy/normal): max 2 pads, Smash priority
     if on_beat:
         ret = []
         for note in sorted_n:
@@ -251,6 +504,7 @@ def pick_notes_at_beat(
         return ret
     if off_beat:
         non_kick = [n for n in sorted_n if n["Id"] != kick]
+        # Prefer non-kick chords when the stack is busy; otherwise keep best 2
         pool = non_kick if len(sorted_n) > 2 else sorted_n
         return [copy_note(n, n["Id"]) for n in pool[:2]]
     return []
@@ -309,9 +563,16 @@ def guess_meta_from_filename(path: Path) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 def build_song_timing(bpm: float, end_beat: float) -> list[dict]:
-    """Constant-tempo map matching Smash Drums Editor (beat 0, 1, end)."""
+    """Constant-tempo map matching Smash Drums Editor (beat 0, 1, end).
+
+    Every anchor BEAT must be a whole number: Smash SongTimingItem.beat is an
+    int, and a fractional anchor (e.g. end at 174.4167) looks right in the
+    editor but the game coerces it and audio drifts in-headset. The BPM itself
+    may be fractional — it lives in the float `timer` values, which is legal.
+    """
     spb = 60.0 / bpm
-    end = max(4.0, quantize_beat(end_beat))
+    last = quantize_beat(end_beat)
+    end = int(max(4.0, math.ceil(last - 1e-9)))
     return [
         {"beat": 0, "timer": 0.0},
         {"beat": 1, "timer": spb},
@@ -319,20 +580,336 @@ def build_song_timing(bpm: float, end_beat: float) -> list[dict]:
     ]
 
 
-def parse_midi(path: Path, bpm_override: float | None = None) -> dict:
+# How close a MIDI tempo change must land to a whole beat to be represented
+# exactly in the game (SongTiming anchor beats are ints). 1/50 beat = 10 ms
+# at 120 BPM — real tempomaps change on bar lines, well inside this.
+TEMPO_ANCHOR_TOLERANCE = 0.02
+
+
+def timing_from_tempo_map(
+    tpb: int, tempo_map: list[tuple[int, int]], last_beat: float
+) -> tuple[list[dict], float, float] | None:
+    """
+    Beat→seconds SongTiming anchors honoring every MIDI tempo change.
+
+    Returns (anchors, duration_sec, eff_bpm) or None when a tempo change
+    lands off-integer (the game can't represent it — caller should fall back
+    to a constant tempo and warn). All anchor beats are whole numbers; only
+    `timer` values are floats.
+
+    Builds a segment list [(beat_start, sec_start, bpm)] from the MIDI tempo
+    map, then samples anchors at integer beats: beat 0, beat 1, every beat
+    where the tempo changes (within TEMPO_ANCHOR_TOLERANCE), and the end.
+    """
+    if len({tempo for _, tempo in tempo_map}) < 2:
+        return None
+
+    # (beat_start, sec_start, bpm) per constant-tempo segment
+    segments: list[tuple[float, float, float]] = []
+    sec = 0.0
+    prev_tick = 0
+    cur_tempo = tempo_map[0][1]
+    for tick, tempo in tempo_map[1:]:
+        if tick <= prev_tick:
+            cur_tempo = tempo  # same-tick redefinition — keep latest
+            continue
+        segments.append((prev_tick / tpb, sec, 60.0 / (cur_tempo / 1_000_000.0)))
+        sec += (tick - prev_tick) * (cur_tempo / 1_000_000.0) / tpb
+        prev_tick = tick
+        cur_tempo = tempo
+    segments.append((prev_tick / tpb, sec, 60.0 / (cur_tempo / 1_000_000.0)))
+
+    def time_at_beat(beat: float) -> float:
+        t = 0.0
+        for sb, ss, bpm_ in segments:
+            if beat < sb - 1e-9:
+                break
+            t = ss + (beat - sb) * 60.0 / bpm_
+        return t
+
+    # Tempo changes must sit on (near) integer beats for the game
+    change_beats = [sb for sb, _, _ in segments[1:]]
+    for b in change_beats:
+        if abs(b - round(b)) > TEMPO_ANCHOR_TOLERANCE:
+            return None
+
+    anchors: list[dict] = []
+    wanted = {0, 1} | {int(round(b)) for b in change_beats}
+    last_int = int(max(4.0, math.ceil(quantize_beat(last_beat + 4.0) - 1e-9)))
+    wanted.add(last_int)
+    for beat_i in sorted(wanted):
+        anchors.append({"beat": beat_i, "timer": time_at_beat(float(beat_i))})
+
+    end_sec = time_at_beat(float(last_int))
+    eff_bpm = (last_int / end_sec * 60.0) if end_sec > 0 else 0.0
+    return anchors, end_sec, eff_bpm
+
+
+def _track_name_bonus(name: str) -> float:
+    """Score a track/channel name: positive = drums, negative = bass/melody."""
+    if not name:
+        return 0.0
+    if _DRUM_NAME_RE.search(name):
+        return 50.0
+    if _BASS_NAME_RE.search(name):
+        return -80.0
+    if _MELODIC_NAME_RE.search(name):
+        return -40.0
+    return 0.0
+
+
+def score_source_as_drums(
+    notes: list[tuple[int, int, int]],
+    *,
+    name: str = "",
+    program: int | None = None,
+    is_gm_drum_channel: bool = False,
+) -> float:
+    """
+    How drum-kit-like is this note source?
+
+    notes: list of (tick, pitch, velocity)
+    Bass guitar pitches 41–50 collide with GM toms — a source that is mostly
+    those pitches with no kick/snare/hat is bass, not toms.
+    """
+    if not notes:
+        return -999.0
+
+    total = len(notes)
+    kicks = hats = snares = cyms = toms = claps = other = 0
+    for _, pitch, _ in notes:
+        if pitch in GM_KICK:
+            kicks += 1
+        elif pitch in GM_SNARE:
+            snares += 1
+        elif pitch in GM_HAT:
+            hats += 1
+        elif pitch in GM_CYM:
+            cyms += 1
+        elif pitch in GM_TOM:
+            toms += 1
+        elif pitch in GM_CLAP:
+            claps += 1
+        else:
+            other += 1
+
+    kit_core = kicks + snares + hats + cyms
+    perc = kit_core + toms + claps
+    score = 0.0
+
+    if is_gm_drum_channel:
+        score += 40.0
+    score += _track_name_bonus(name)
+
+    # Melodic bass programs on non-ch10 → almost never drums
+    if program is not None and program in GM_BASS_PROGRAMS and not is_gm_drum_channel:
+        score -= 100.0
+    elif program is not None and not is_gm_drum_channel and program < 128:
+        # Other melodic programs (not percussion banks) — mild penalty
+        if program not in (0,) and kit_core < max(3, total * 0.15):
+            score -= 20.0
+
+    # Kit backbone is required for a high score
+    score += min(kicks, 40) * 2.5
+    score += min(snares, 40) * 2.0
+    score += min(hats, 40) * 1.5
+    score += min(cyms, 20) * 1.0
+    score += min(claps, 10) * 0.5
+
+    # Tom-only / tom-heavy with no kit core = bass guitar false positives
+    if kit_core == 0 and toms > 0:
+        score -= 60.0 + min(toms, 50)
+    elif toms > 0 and kit_core > 0:
+        # Real kits have some toms; don't over-penalize
+        tom_ratio = toms / max(1, perc)
+        if tom_ratio > 0.55 and kicks + snares < 4:
+            score -= 35.0
+        else:
+            score += min(toms, 15) * 0.3
+
+    # Non-percussion pitches on this source (melody notes)
+    if other:
+        score -= min(other, 80) * 0.8
+
+    # Fraction of notes that are true kit-core
+    if total:
+        score += (kit_core / total) * 30.0
+        score -= (other / total) * 25.0
+
+    return score
+
+
+def pick_drum_sources(
+    notes_raw: list[tuple[int, int, int, int, int]],
+    *,
+    track_names: dict[int, str],
+    channel_programs: dict[int, int],
+    track_programs: dict[int, int],
+    forced_channel: int | None,
+    all_channels: bool,
+    min_vel: int,
+) -> tuple[set[tuple[int, int]] | None, str, int | None]:
+    """
+    Decide which (track_index, channel) sources are real drums.
+
+    notes_raw entries: (tick, note, velocity, channel, track_index)
+
+    Returns:
+      active_sources: set of (track_idx, ch) to keep, or None = keep all
+      channel_mode: human-readable description
+      active_channel: single channel if locked to one, else None
+    """
+    if forced_channel is not None:
+        ch = int(forced_channel)
+        if not 0 <= ch <= 15:
+            raise ValueError(f"MIDI channel must be 0–15 (got {ch})")
+        # Keep every track on that channel
+        sources = {(ti, c) for _, _, _, c, ti in notes_raw if c == ch}
+        return sources or {(0, ch)}, f"forced ch{ch + 1}", ch
+
+    if all_channels:
+        return None, "all channels (--all-channels)", None
+
+    # Group notes by (track, channel)
+    by_src: dict[tuple[int, int], list[tuple[int, int, int]]] = defaultdict(list)
+    for tick, note, vel, ch, ti in notes_raw:
+        by_src[(ti, ch)].append((tick, note, vel))
+
+    if not by_src:
+        return None, "all (empty)", None
+
+    scored: list[tuple[float, tuple[int, int], str]] = []
+    for (ti, ch), notes in by_src.items():
+        name = track_names.get(ti, "")
+        prog = track_programs.get(ti)
+        if prog is None:
+            prog = channel_programs.get(ch)
+        sc = score_source_as_drums(
+            notes,
+            name=name,
+            program=prog,
+            is_gm_drum_channel=(ch == GM_DRUM_CHANNEL),
+        )
+        label = name.strip() or f"track{ti}"
+        scored.append((sc, (ti, ch), label))
+
+    scored.sort(key=lambda x: (-x[0], x[1][0], x[1][1]))
+    best_score, best_src, best_label = scored[0]
+    best_ti, best_ch = best_src
+
+    # Prefer GM ch10 if it has any real kit-core hits (not just bass-range toms)
+    ch10_core = sum(
+        1
+        for _, note, vel, ch, _ in notes_raw
+        if ch == GM_DRUM_CHANNEL and note in GM_KIT_CORE and vel >= min_vel
+    )
+    if ch10_core >= 4:
+        sources = {
+            (ti, ch)
+            for _, _, _, ch, ti in notes_raw
+            if ch == GM_DRUM_CHANNEL
+        }
+        return sources, "auto ch10 (kit-core drums)", GM_DRUM_CHANNEL
+
+    # Strong drum-like source → use only sources that score close to best
+    # and are clearly kit (not bass)
+    DRUM_MIN_SCORE = 25.0
+    if best_score >= DRUM_MIN_SCORE:
+        keep: set[tuple[int, int]] = set()
+        for sc, src, _ in scored:
+            # Same channel as best if it's the GM drum channel, or near-best score
+            if sc >= max(DRUM_MIN_SCORE, best_score - 20.0):
+                keep.add(src)
+            elif src[1] == best_ch and sc >= DRUM_MIN_SCORE * 0.6:
+                keep.add(src)
+        # Always include the winner
+        keep.add(best_src)
+
+        # Drop sources that look like bass even if score was middling
+        filtered: set[tuple[int, int]] = set()
+        for src in keep:
+            ti, ch = src
+            sc = next(s for s, ssrc, _ in scored if ssrc == src)
+            name = track_names.get(ti, "")
+            if _BASS_NAME_RE.search(name) and ch != GM_DRUM_CHANNEL:
+                continue
+            if sc < 0 and src != best_src:
+                continue
+            filtered.add(src)
+        keep = filtered or {best_src}
+
+        chans = sorted({c for _, c in keep})
+        if len(keep) == 1:
+            mode = (
+                f"auto drums ({best_label!r} ch{best_ch + 1}, score {best_score:.0f})"
+            )
+            return keep, mode, best_ch
+        mode = (
+            f"auto drums multi ({len(keep)} sources, best {best_label!r} "
+            f"ch{best_ch + 1} score {best_score:.0f}; chs "
+            f"{','.join(str(c + 1) for c in chans)})"
+        )
+        return keep, mode, None
+
+    # Weak scores: still avoid pure bass sources. Keep only non-negative scores
+    # or the single least-bad source if everything is negative.
+    positive = {src for sc, src, _ in scored if sc >= 0}
+    if positive:
+        return positive, f"auto non-bass sources ({len(positive)})", None
+
+    # Last resort: single best source only (never "all channels" — that maps bass→toms)
+    return (
+        {best_src},
+        f"auto best-effort ({best_label!r} ch{best_ch + 1}, score {best_score:.0f})",
+        best_ch,
+    )
+
+
+def parse_midi(
+    path: Path,
+    bpm_override: float | None = None,
+    *,
+    min_velocity: int = DEFAULT_MIN_VELOCITY,
+    tom_min_velocity: int | None = None,
+    channel: int | None = None,
+    all_channels: bool = False,
+) -> dict:
+    """
+    Parse a MIDI file into Smash Extreme notes.
+
+    Drum source selection (always on unless --all-channels / --channel):
+      - Prefer GM drum channel 10 when it has real kit hits (kick/snare/hat/cym).
+      - Else pick track/channel sources that score like a drum kit.
+      - Bass guitar / melodic tracks are rejected so their pitches 41–50
+        never become phantom toms.
+
+    Quiet hits under min_velocity are dropped; toms use a stricter floor.
+    """
     mid = mido.MidiFile(path)
     tpb = mid.ticks_per_beat
     tempo_events: list[tuple[int, int]] = [(0, 500000)]
-    notes_raw: list[tuple[int, int, int]] = []
+    # (abs_tick, note, velocity, channel, track_index)
+    notes_raw: list[tuple[int, int, int, int, int]] = []
+    track_names: dict[int, str] = {}
+    # last program change seen per channel / per track
+    channel_programs: dict[int, int] = {}
+    track_programs: dict[int, int] = {}
 
-    for track in mid.tracks:
+    for ti, track in enumerate(mid.tracks):
         abs_tick = 0
         for msg in track:
             abs_tick += msg.time
             if msg.type == "set_tempo":
                 tempo_events.append((abs_tick, msg.tempo))
+            elif msg.type == "track_name":
+                track_names[ti] = (msg.name or "").strip()
+            elif msg.type == "program_change":
+                ch = getattr(msg, "channel", 0)
+                channel_programs[ch] = int(msg.program)
+                track_programs[ti] = int(msg.program)
             elif msg.type == "note_on" and msg.velocity > 0:
-                notes_raw.append((abs_tick, msg.note, msg.velocity))
+                ch = getattr(msg, "channel", 0)
+                notes_raw.append((abs_tick, msg.note, msg.velocity, ch, ti))
 
     tempo_events.sort(key=lambda x: x[0])
     tempo_map: list[tuple[int, int]] = []
@@ -358,28 +935,94 @@ def parse_midi(path: Path, bpm_override: float | None = None) -> dict:
     midi_bpm = 60_000_000.0 / tempo_map[0][1]
     bpm = float(bpm_override) if bpm_override else midi_bpm
 
+    # Toms always use at least DEFAULT_TOM_MIN_VELOCITY (watch for phantom toms).
+    # Caller may raise the floor further; never lower it below the default.
+    min_vel = max(1, int(min_velocity))
+    if tom_min_velocity is None:
+        tom_floor = DEFAULT_TOM_MIN_VELOCITY
+    else:
+        tom_floor = max(DEFAULT_TOM_MIN_VELOCITY, int(tom_min_velocity))
+    tom_floor = max(min_vel, int(tom_floor))
+
+    active_sources, channel_mode, active_channel = pick_drum_sources(
+        notes_raw,
+        track_names=track_names,
+        channel_programs=channel_programs,
+        track_programs=track_programs,
+        forced_channel=channel,
+        all_channels=all_channels,
+        min_vel=min_vel,
+    )
+
+    # Precompute which kept sources actually look like a kit (for tom gating)
+    source_scores: dict[tuple[int, int], float] = {}
+    by_src_notes: dict[tuple[int, int], list[tuple[int, int, int]]] = defaultdict(list)
+    for tick, note, vel, ch, ti in notes_raw:
+        by_src_notes[(ti, ch)].append((tick, note, vel))
+    for src, notes in by_src_notes.items():
+        ti, ch = src
+        source_scores[src] = score_source_as_drums(
+            notes,
+            name=track_names.get(ti, ""),
+            program=track_programs.get(ti, channel_programs.get(ch)),
+            is_gm_drum_channel=(ch == GM_DRUM_CHANNEL),
+        )
+
     extreme: list[dict] = []
     unmapped: dict[int, int] = defaultdict(int)
     gm_counts: dict[int, int] = defaultdict(int)
+    skipped_quiet = 0
+    skipped_channel = 0
+    skipped_bass_tom = 0
+    channel_counts: dict[int, int] = defaultdict(int)
     # wall-clock seconds for kick/snare (alignment)
     align_times: list[float] = []
 
-    for tick, note, vel in notes_raw:
-        gm_counts[note] += 1
+    for tick, note, vel, ch, ti in notes_raw:
+        channel_counts[ch] += 1
+        src = (ti, ch)
+        if active_sources is not None and src not in active_sources:
+            skipped_channel += 1
+            continue
+
         smash_id = GM_TO_SMASH.get(note)
         if smash_id is None:
             unmapped[note] += 1
             continue
+
+        # Extra tom guard: even on a kept source, drop tom pitches if this
+        # source has no kit-core backbone (bass guitar riff in 41–50 range).
+        if smash_id == 3:  # Tom
+            sc = source_scores.get(src, 0.0)
+            notes_here = by_src_notes.get(src, [])
+            core_hits = sum(1 for _, p, _ in notes_here if p in GM_KIT_CORE)
+            if core_hits < 2 and ch != GM_DRUM_CHANNEL:
+                skipped_bass_tom += 1
+                continue
+            if sc < 15.0 and ch != GM_DRUM_CHANNEL and core_hits < 8:
+                skipped_bass_tom += 1
+                continue
+
+        floor = tom_floor if smash_id == 3 else min_vel
+        if vel < floor:
+            skipped_quiet += 1
+            continue
+
+        gm_counts[note] += 1
         beat = quantize_beat(tick / tpb)
         extreme.append(
-            {"Beat": float(beat), "Id": smash_id, "Strength": vel_to_strength(vel)}
+            {
+                "Beat": float(beat),
+                "Id": smash_id,
+                "Strength": NORMAL_STRENGTH,  # Neutral; never Crystal (0) or Burning (2)
+            }
         )
         if note in (35, 36, 38, 40):  # kick / snare for alignment
             align_times.append(tick_to_seconds(tick))
 
     extreme = dedupe_notes(extreme)
     last_beat = extreme[-1]["Beat"] if extreme else 0.0
-    last_tick = max((t for t, _, _ in notes_raw), default=0)
+    last_tick = max((t for t, _, _, _, _ in notes_raw), default=0)
     midi_duration = tick_to_seconds(last_tick)
     duration_sec = last_beat * 60.0 / bpm if bpm > 0 else midi_duration
     song_timing = build_song_timing(bpm, last_beat + 4)
@@ -388,6 +1031,12 @@ def parse_midi(path: Path, bpm_override: float | None = None) -> dict:
         "bpm": int(round(bpm)),
         "bpm_float": bpm,
         "midi_bpm": midi_bpm,
+        "has_tempo_changes": len({t for _, t in tempo_map}) > 1,
+        "eff_bpm": (
+            (last_tick / tpb) / midi_duration * 60.0
+            if midi_duration > 0
+            else midi_bpm
+        ),
         "tpb": tpb,
         "extreme": extreme,
         "unmapped": dict(unmapped),
@@ -399,6 +1048,15 @@ def parse_midi(path: Path, bpm_override: float | None = None) -> dict:
         "note_count_raw": len(notes_raw),
         "align_times": align_times,
         "tempo_map": tempo_map,
+        "channel_mode": channel_mode,
+        "active_channel": active_channel,
+        "channel_counts": dict(channel_counts),
+        "skipped_quiet": skipped_quiet,
+        "skipped_channel": skipped_channel,
+        "skipped_bass_tom": skipped_bass_tom,
+        "min_velocity": min_vel,
+        "tom_min_velocity": tom_floor,
+        "track_names": dict(track_names),
     }
 
 
@@ -411,7 +1069,7 @@ def align_midi_to_audio(
     """
     Find BPM + lag so MIDI kick/snare line up with audio onsets.
     Returns {bpm, lag_sec, score} or None if deps/audio missing / score too weak.
-    audio_time ≈ midi_time * (midi_bpm / bpm) + lag_sec
+    audio_time â‰ˆ midi_time * (midi_bpm / bpm) + lag_sec
     """
     if sf is None or np is None or not align_times:
         return None
@@ -431,6 +1089,17 @@ def align_midi_to_audio(
     peak = float(nov.max()) or 1.0
     nov = nov / peak
     audio_dur = len(mono) / float(sr)
+    frame_dt = hop / float(sr)
+
+    # Precompute a sliding ±3-frame max so scoring each candidate
+    # (bpm, lag) is a vectorized array lookup instead of a Python loop
+    # over every drum hit (~5M iterations per song before this).
+    from numpy.lib.stride_tricks import sliding_window_view
+
+    padded = np.concatenate(
+        [np.zeros(3, dtype=nov.dtype), nov, np.zeros(3, dtype=nov.dtype)]
+    )
+    win_max = sliding_window_view(padded, 7)  # win_max[i] == max(nov[i-3:i+4])
 
     # Use early/mid hits for a stable lock (skip extreme tail)
     times = np.array(align_times, dtype=np.float64)
@@ -440,20 +1109,17 @@ def align_midi_to_audio(
     def score(lag: float, bpm: float) -> float:
         scale = midi_bpm / bpm
         mt = times * scale + lag
-        idx = np.round(mt / 0.01).astype(np.int64)
+        idx = np.round(mt / frame_dt).astype(np.int64)
         valid = (idx >= 0) & (idx < len(nov)) & (mt < audio_dur)
         idx = idx[valid]
         if len(idx) < 20:
             return 0.0
-        total = 0.0
-        for i in idx:
-            lo = max(0, int(i) - 3)
-            hi = min(len(nov), int(i) + 4)
-            total += float(nov[lo:hi].max())
-        return total / len(idx)
+        # nov is non-negative, so zero-padding at the edges cannot
+        # overstate the clamped-window max this replaces.
+        return float(win_max[idx].max(axis=1).sum()) / len(idx)
 
     center = float(bpm_hint) if bpm_hint else midi_bpm
-    bpm_lo = max(60.0, center - 12.0)
+    bpm_lo = max(40.0, center - 12.0)
     bpm_hi = min(280.0, center + 12.0)
 
     best = (0.0, 0.0, midi_bpm)  # score, lag, bpm
@@ -506,7 +1172,9 @@ def apply_timing_fix(
         b = quantize_beat(n["Beat"] + beat_shift)
         if b < 0:
             continue
-        shifted.append({"Beat": float(b), "Id": n["Id"], "Strength": n["Strength"]})
+        shifted.append(
+            {"Beat": float(b), "Id": n["Id"], "Strength": NORMAL_STRENGTH}
+        )
     shifted = sort_notes(shifted)
     last_beat = shifted[-1]["Beat"] if shifted else 0.0
     timing = build_song_timing(bpm, last_beat + 4)
@@ -534,7 +1202,7 @@ def format_meta(meta: dict) -> str:
             lines += [
                 "        {",
                 f'            "Beat": {fmt_beat(n["Beat"])},',
-                f'            "Strength": {n["Strength"]},',
+                f'            "Strength": {NORMAL_STRENGTH},',
                 f'            "Id": {n["Id"]}',
                 f"        }}{comma}",
             ]
@@ -668,7 +1336,7 @@ genre = rock
 preview_start_time = 0
 song_length = {int(duration * 1000)}
 diff_drums = 0
-delay = 0
+delay = {int(round(meta["SongOffsetSeconds"] * 1000))}
 loading_phrase = Converted from MIDI drums
 """,
         encoding="utf-8",
@@ -757,18 +1425,62 @@ def find_sidecar_audio(midi_path: Path) -> Path | None:
     return None
 
 
-def copy_as_ogg(src: Path, dst: Path) -> None:
-    """Copy audio into package. Indies expects audio.ogg; non-ogg is still copied as-is
-    with .ogg name only if already ogg; otherwise write sidecar note.
+def copy_as_ogg(src: Path, dst: Path) -> bool:
+    """Package audio as a REAL Ogg Vorbis file.
+
+    Indies packages expect audio.ogg — writing MP3/WAV bytes into an .ogg
+    filename produces a file the game/editor cannot decode. Ogg sources are
+    copied as-is; anything else is transcoded (soundfile, else ffmpeg).
+
+    Returns True when audio.ogg is guaranteed-decodable Ogg.
     """
     if src.suffix.lower() == ".ogg":
         dst.write_bytes(src.read_bytes())
-        return
-    # Keep original extension alongside, and also write as audio.ogg copy of bytes
-    # (game may only accept ogg — still package original for editor load)
+        return True
+    if sf is not None:
+        # Isolated in a subprocess on purpose: a broken libsndfile vorbis
+        # encoder can hard-crash (native stack overflow) the whole process,
+        # which would abort the conversion. A crashed child just fails here
+        # and we fall through to ffmpeg / the raw-copy fallback.
+        code = (
+            "import sys, soundfile as sf; "
+            "d, sr = sf.read(sys.argv[1], always_2d=True); "
+            "sf.write(sys.argv[2], d, sr, format='OGG', subtype='VORBIS')"
+        )
+        try:
+            r = subprocess.run(
+                [sys.executable, "-c", code, str(src), str(dst)],
+                capture_output=True,
+                timeout=300,
+            )
+            if r.returncode == 0 and dst.exists() and dst.stat().st_size > 0:
+                return True
+        except Exception:
+            pass
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        try:
+            subprocess.run(
+                [ffmpeg, "-y", "-v", "error", "-i", str(src),
+                 "-c:a", "libvorbis", str(dst)],
+                check=True,
+                capture_output=True,
+            )
+            if dst.exists() and dst.stat().st_size > 0:
+                return True
+        except Exception:
+            pass
+    # Last resort: ship the original bytes under the expected name plus an
+    # honest sidecar. If audio.ogg won't play in-game, load the sidecar.
     dst.write_bytes(src.read_bytes())
     sidecar = dst.with_name(f"source_audio{src.suffix.lower()}")
     sidecar.write_bytes(src.read_bytes())
+    print(
+        f"  WARNING: could not transcode {src.name} to Ogg — audio.ogg "
+        f"contains raw {src.suffix} bytes. Install ffmpeg for a proper "
+        f"conversion, or load {sidecar.name} in the editor."
+    )
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -789,6 +1501,11 @@ def convert_one(
     open_folder: bool,
     align: bool = True,
     force: bool = True,
+    min_velocity: int = DEFAULT_MIN_VELOCITY,
+    tom_min_velocity: int | None = None,
+    channel: int | None = None,
+    all_channels: bool = False,
+    spacing: int = DEFAULT_SPACING_SUBDIV,
 ) -> Path:
     midi_path = midi_path.resolve()
     if not midi_path.exists():
@@ -796,15 +1513,33 @@ def convert_one(
     if midi_path.suffix.lower() not in {".mid", ".midi"}:
         raise ValueError(f"Not a MIDI file: {midi_path}")
 
+    # Always Smash-playable — not optional
+    max_chord = DEFAULT_MAX_CHORD
+    hihat_subdivision = DEFAULT_HIHAT_SUBDIVISION
+
     g_artist, g_title = guess_meta_from_filename(midi_path)
     artist = (artist or g_artist).strip() or "Unknown Artist"
     title = (title or g_title).strip() or midi_path.stem
 
     # Parse with MIDI-native tempo first; BPM override / align applied after
-    parsed = parse_midi(midi_path, bpm_override=None)
+    parsed = parse_midi(
+        midi_path,
+        bpm_override=None,
+        min_velocity=min_velocity,
+        tom_min_velocity=tom_min_velocity,
+        channel=channel,
+        all_channels=all_channels,
+    )
     extreme = parsed["extreme"]
     if not extreme:
-        raise RuntimeError(f"No mappable drum notes in {midi_path.name}")
+        hint = ""
+        if parsed.get("skipped_channel") or parsed.get("skipped_quiet"):
+            hint = (
+                f" (dropped {parsed.get('skipped_channel', 0)} other-channel, "
+                f"{parsed.get('skipped_quiet', 0)} quiet hits — try --all-channels "
+                f"or --min-velocity 1)"
+            )
+        raise RuntimeError(f"No mappable drum notes in {midi_path.name}{hint}")
 
     safe_guess = sanitize_filename(title)
     audio_src = audio
@@ -819,16 +1554,21 @@ def convert_one(
     align_info: dict | None = None
 
     # Auto tempo fit when possible. Classic symptom of wrong MIDI tempo:
-    # offset lines up the start, then notes fall behind → BPM is too low.
+    # offset lines up the start, then notes fall behind â†’ BPM is too low.
     # We fix BPM from the audio and only apply a beat-shift lag when the
     # lock is strong AND the user did not set --offset themselves.
     if align and audio_src and Path(audio_src).exists() and bpm is None:
         print(f"  Fitting tempo to audio: {audio_src.name} ...")
+        # Multi-tempo MIDIs: the fit works on seconds, so center the search
+        # on the song's average rate rather than the first tempo event.
+        ref_bpm = (
+            parsed["eff_bpm"] if parsed["has_tempo_changes"] else parsed["midi_bpm"]
+        )
         align_info = align_midi_to_audio(
             parsed["align_times"],
-            parsed["midi_bpm"],
+            ref_bpm,
             audio_src,
-            bpm_hint=parsed["midi_bpm"],
+            bpm_hint=ref_bpm,
         )
         if align_info and align_info.get("accepted"):
             bpm_final = float(align_info["bpm"])
@@ -838,42 +1578,96 @@ def convert_one(
             if abs(song_offset) < 1e-6 and abs(lag) > 0.02:
                 beat_shift = lag * bpm_final / 60.0
                 print(
-                    f"  Tempo fit: BPM {parsed['midi_bpm']:.2f} → {bpm_final:.2f}, "
+                    f"  Tempo fit: BPM {parsed['midi_bpm']:.2f} â†’ {bpm_final:.2f}, "
                     f"lag {lag:+.3f}s (beat shift {beat_shift:+.3f}), "
                     f"score {align_info['score']:.3f}"
                 )
             else:
                 print(
-                    f"  Tempo fit: BPM {parsed['midi_bpm']:.2f} → {bpm_final:.2f} "
+                    f"  Tempo fit: BPM {parsed['midi_bpm']:.2f} â†’ {bpm_final:.2f} "
                     f"(score {align_info['score']:.3f}). "
                     f"Lag {lag:+.3f}s left to Song Offset / your manual offset."
                 )
         elif align_info:
             print(
                 f"  Tempo fit weak (score {align_info['score']:.3f} vs baseline "
-                f"{align_info['baseline']:.3f}) — keeping MIDI tempo {parsed['midi_bpm']:.2f}. "
+                f"{align_info['baseline']:.3f}) â€” keeping MIDI tempo {parsed['midi_bpm']:.2f}. "
                 f"If notes fall behind, raise BPM a few points (e.g. --bpm 163)."
             )
         else:
             print("  Tempo fit skipped (could not analyse audio).")
 
-    extreme, song_timing, last, duration_sec = apply_timing_fix(
-        extreme, bpm=bpm_final, beat_shift=beat_shift
-    )
+    # Timing. The game requires whole-number anchor beats, and honors the
+    # full anchor list — so when the MIDI has tempo changes that land on
+    # whole beats we emit them exactly instead of flattening to one BPM
+    # (which silently drifts mid-song). Overridden/fitted BPM wins instead.
+    align_accepted = bool(align_info and align_info.get("accepted"))
+    tempo_map_fit = None
+    if bpm is None and not align_accepted and abs(beat_shift) < 1e-9:
+        tempo_map_fit = timing_from_tempo_map(
+            parsed["tpb"], parsed["tempo_map"], parsed["last_beat"]
+        )
+    if tempo_map_fit is not None:
+        song_timing, duration_sec, eff_bpm = tempo_map_fit
+        last = extreme[-1]["Beat"] if extreme else 0.0
+        bpm_report = eff_bpm
+        parsed["timing_mode"] = "tempo map"
+    else:
+        if parsed["has_tempo_changes"] and bpm is None and not align_accepted:
+            print(
+                "  Note: MIDI tempo changes don't land on whole beats, which "
+                "the game can't represent (SongTiming beats are integers). "
+                "Using a constant BPM — check sync in-game."
+            )
+        extreme, song_timing, last, duration_sec = apply_timing_fix(
+            extreme, bpm=bpm_final, beat_shift=beat_shift
+        )
+        bpm_report = bpm_final
+        parsed["timing_mode"] = "constant"
     # User --offset is silent lead-in (chart before audio). Applied as SongOffsetSeconds.
     # When we already beat-shifted for audio lag, leave offset as user-specified only.
-    parsed["bpm"] = int(round(bpm_final))
-    parsed["bpm_float"] = bpm_final
+    parsed["bpm"] = int(round(bpm_report))
+    parsed["bpm_float"] = bpm_report
     parsed["song_timing"] = song_timing
     parsed["last_beat"] = last
     parsed["duration_sec"] = duration_sec
 
+    # Snap to the note grid (default 1/16) so micro-timed MIDI hits (flams,
+    # late snares) land ON gridlines instead of cramming between them. Runs
+    # before hat limiting / chord cap so those see final positions.
+    extreme, snapped_moved, snapped_merged = snap_to_grid(extreme, spacing)
+    parsed["spacing_subdivision"] = spacing
+    parsed["spacing_moved"] = snapped_moved
+    parsed["spacing_merged"] = snapped_merged
+
+    # Always Smash-playable: 1/8 max hats, max 2 pads per stack, tom floor
+    # already applied in parse_midi. Hat limiting can leave two pads on a
+    # busy beat, so chord cap runs after.
+    extreme_before_cap = len(extreme)
+    extreme, hihat_dropped = limit_hihat_rate(
+        extreme, subdivision=hihat_subdivision
+    )
+    extreme, chord_dropped, chords_thinned = cap_chord_size(extreme, max_chord)
+    parsed["max_chord"] = max_chord
+    parsed["chord_dropped"] = chord_dropped
+    parsed["chords_thinned"] = chords_thinned
+    parsed["extreme_before_cap"] = extreme_before_cap
+    parsed["hihat_subdivision"] = hihat_subdivision
+    parsed["hihat_dropped"] = hihat_dropped
+
     if no_downchart:
-        hard = normal = easy = extreme
+        hard = list(extreme)
+        normal = list(extreme)
+        easy = list(extreme)
     else:
         hard = downchart(extreme, "hard")
         normal = downchart(extreme, "normal")
         easy = downchart(extreme, "easy")
+
+    # Hard rule: every note Neutral. Smash 0 = Crystal, 2 = Burning.
+    for chart in (extreme, hard, normal, easy):
+        for n in chart:
+            n["Strength"] = NORMAL_STRENGTH
 
     phases = [
         {"beat": 0.0, "phase": 1, "power": 0.6, "phaseName": "Intro"},
@@ -967,7 +1761,47 @@ def convert_one(
     print(f"  {artist} — {title}")
     print("=" * 60)
     print(f"  MIDI:     {midi_path}")
+    print(f"  Channel:  {parsed.get('channel_mode', 'all')}")
+    print(
+        f"  Velocity: min {parsed.get('min_velocity', min_velocity)}, "
+        f"tom min {parsed.get('tom_min_velocity', tom_min_velocity or DEFAULT_TOM_MIN_VELOCITY)}"
+        f"  (dropped quiet={parsed.get('skipped_quiet', 0)}, "
+        f"other src={parsed.get('skipped_channel', 0)}, "
+        f"bass→tom={parsed.get('skipped_bass_tom', 0)})"
+    )
+    mc = parsed.get("max_chord", max_chord)
+    print(
+        f"  Chords:   max {mc} pads per stack (always; stacks = notes within "
+        f"1/{CHORD_WINDOW_SUBDIV} beat)  "
+        f"(thinned {parsed.get('chords_thinned', 0)} stacks, "
+        f"dropped {parsed.get('chord_dropped', 0)} notes; "
+        f"{parsed.get('extreme_before_cap', len(extreme))} → {len(extreme)})"
+    )
+    sp = int(parsed.get("spacing_subdivision", spacing))
+    if sp > 0:
+        sp_label = {4: "1/4", 8: "1/8", 16: "1/16", 32: "1/32"}.get(sp, f"1/{sp}")
+        print(
+            f"  Spacing:  {sp_label} grid (snapped {parsed.get('spacing_moved', 0)}, "
+            f"merged {parsed.get('spacing_merged', 0)} same-cell duplicates)"
+        )
+    else:
+        print("  Spacing:  off (raw MIDI timing)")
+    hat_sub = int(parsed.get("hihat_subdivision", hihat_subdivision))
+    hat_drop = parsed.get("hihat_dropped", 0)
+    gap = subdivision_to_gap_beats(hat_sub)
+    label = {4: "1/4", 8: "1/8", 16: "1/16"}.get(hat_sub, f"1/{hat_sub}")
+    print(
+        f"  Hi-hats:  max {label} notes (always)  "
+        f"(min gap {gap:g} beat, dropped {hat_drop})"
+    )
     print(f"  BPM:      {parsed['bpm_float']:.3f}  (MIDI file said {parsed['midi_bpm']:.2f})")
+    if parsed.get("timing_mode") == "tempo map":
+        print(
+            f"  Timing:   tempo map ({len(parsed['song_timing'])} anchors, "
+            f"all integer beats)"
+        )
+    else:
+        print("  Timing:   constant BPM (3 anchors, integer beats)")
     if beat_shift:
         print(f"  Beat shift: {beat_shift:+.3f} (audio lock)")
     print(f"  Duration: {parsed['duration_sec']:.1f}s  |  last beat {parsed['last_beat']}")
@@ -1082,27 +1916,115 @@ Drag & drop MIDI files onto Convert MIDI to Smash.bat on your Desktop.
         help="Do not auto-fit BPM/lag against audio (use MIDI tempo as-is)",
     )
     p.add_argument(
+        "--spacing",
+        type=int,
+        default=DEFAULT_SPACING_SUBDIV,
+        metavar="N",
+        help=(
+            "Snap every note to the nearest 1/N beat so micro-timed hits land "
+            "on gridlines (default 16 = sixteenths — the densest grid the "
+            "converter allows). Use 0 to keep raw MIDI timing."
+        ),
+    )
+    p.add_argument(
         "--no-force",
         action="store_true",
         help="Do not overwrite existing output folder (create Song (2) instead)",
     )
+    p.add_argument(
+        "--min-velocity",
+        type=int,
+        default=DEFAULT_MIN_VELOCITY,
+        metavar="N",
+        help=(
+            f"Ignore note-ons quieter than N (1–127). "
+            f"Cuts ghost hits / bleed. Default: {DEFAULT_MIN_VELOCITY}. Use 1 to keep everything."
+        ),
+    )
+    p.add_argument(
+        "--tom-min-velocity",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            f"Raise the tom velocity floor only (always at least "
+            f"{DEFAULT_TOM_MIN_VELOCITY}). Phantom toms / bleed use this. "
+            f"Cannot go below {DEFAULT_TOM_MIN_VELOCITY}."
+        ),
+    )
+    p.add_argument(
+        "--all-channels",
+        action="store_true",
+        help="Read every MIDI channel (default: prefer GM drum channel 10 when present)",
+    )
+    p.add_argument(
+        "--channel",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Force a single MIDI channel 0–15 (overrides --all-channels). GM drums = 9.",
+    )
     return p
 
 
-def inspect_midi(path: Path) -> None:
-    parsed = parse_midi(path)
+def inspect_midi(
+    path: Path,
+    *,
+    min_velocity: int = DEFAULT_MIN_VELOCITY,
+    tom_min_velocity: int | None = None,
+    channel: int | None = None,
+    all_channels: bool = False,
+) -> None:
+    parsed = parse_midi(
+        path,
+        min_velocity=min_velocity,
+        tom_min_velocity=tom_min_velocity,
+        channel=channel,
+        all_channels=all_channels,
+    )
     print(f"\n{path.name}")
     print(f"  ticks/beat: {parsed['tpb']}")
     print(f"  BPM:        {parsed['midi_bpm']:.3f}")
     print(f"  duration:   {parsed['midi_duration_sec']:.2f}s")
     print(f"  note-ons:   {parsed['note_count_raw']}")
-    print("  notes:")
+    print(f"  channel:    {parsed['channel_mode']}")
+    print(
+        f"  velocity:   min {parsed['min_velocity']}, tom min {parsed['tom_min_velocity']} "
+        f"(quiet skipped {parsed['skipped_quiet']}, other src {parsed['skipped_channel']}, "
+        f"bass→tom {parsed.get('skipped_bass_tom', 0)})"
+    )
+    if parsed.get("has_tempo_changes"):
+        n_tempos = len({t for _, t in parsed["tempo_map"]})
+        fit = timing_from_tempo_map(
+            parsed["tpb"], parsed["tempo_map"], parsed["last_beat"]
+        )
+        status = (
+            "game-representable (integer-beat anchors)"
+            if fit
+            else "NOT game-representable (tempo changes off whole beats)"
+        )
+        print(
+            f"  tempos:     {n_tempos} distinct, avg {parsed['eff_bpm']:.1f} BPM — {status}"
+        )
+    if parsed.get("track_names"):
+        names = ", ".join(
+            f"t{ti}={n!r}" for ti, n in sorted(parsed["track_names"].items()) if n
+        )
+        if names:
+            print(f"  tracks:     {names}")
+    if parsed["channel_counts"]:
+        ch_parts = [
+            f"ch{ch + 1}={cnt}"
+            for ch, cnt in sorted(parsed["channel_counts"].items(), key=lambda x: -x[1])
+        ]
+        print(f"  by channel: {', '.join(ch_parts)}")
+    print("  notes (kept):")
     for n, cnt in sorted(parsed["gm_counts"].items(), key=lambda x: -x[1]):
         mapped = GM_TO_SMASH.get(n)
         dest = SMASH_NAMES.get(mapped, "?") if mapped is not None else "SKIP"
         print(f"    {n:3d} {GM_NAMES.get(n, '?'):16s} x{cnt:<5d} → {dest}")
     if parsed["unmapped"]:
-        print("  unmapped:", parsed["unmapped"])
+        print("  unmapped (on active channel):", parsed["unmapped"])
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1123,7 +2045,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.inspect:
         for m in midis:
             try:
-                inspect_midi(m)
+                inspect_midi(
+                    m,
+                    min_velocity=args.min_velocity,
+                    tom_min_velocity=args.tom_min_velocity,
+                    channel=args.channel,
+                    all_channels=args.all_channels,
+                )
             except Exception as e:
                 print(f"ERROR {m}: {e}", file=sys.stderr)
         return 0
@@ -1147,6 +2075,11 @@ def main(argv: list[str] | None = None) -> int:
                 open_folder=args.open and len(midis) == 1,
                 align=not args.no_align,
                 force=not args.no_force,
+                min_velocity=args.min_velocity,
+                tom_min_velocity=args.tom_min_velocity,
+                channel=args.channel,
+                all_channels=args.all_channels,
+                spacing=args.spacing,
             )
         except Exception as e:
             errors += 1

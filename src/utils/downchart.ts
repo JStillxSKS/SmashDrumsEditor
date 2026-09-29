@@ -12,6 +12,20 @@ export type LowerDifficulty = "hard" | "normal" | "easy";
 
 const KICK: ChartNote["Id"] = 0;
 
+/**
+ * Thinning order for stacked notes — canonical order shared with the MIDI
+ * converter (scripts/midi_to_smash.py): kick/snare form the groove, cymbal
+ * accents next, hats/toms/clapfire are dropped first.
+ */
+const SMASH_NOTE_PRIORITY: Record<ChartNote["Id"], number> = {
+  0: 0, // Kick
+  1: 1, // Snare
+  2: 2, // Cymbal
+  5: 3, // Clapfire
+  4: 4, // Hi-hat
+  3: 5, // Tom
+};
+
 /** Beat index within a measure (0 … beatsPerBar). */
 function beatInMeasure(beat: number, beatsPerBar = BEATS_PER_MEASURE): number {
   const bar = beatsPerBar > 0 ? beatsPerBar : BEATS_PER_MEASURE;
@@ -71,7 +85,12 @@ function pickNotesAtBeat(
   offBeat: boolean,
   beatsPerBar = BEATS_PER_MEASURE
 ): ChartNote[] {
-  const sorted = [...notes].sort((a, b) => a.Id - b.Id);
+  const sorted = [...notes].sort(
+    (a, b) =>
+      SMASH_NOTE_PRIORITY[a.Id] - SMASH_NOTE_PRIORITY[b.Id] ||
+      b.Strength - a.Strength ||
+      a.Id - b.Id
+  );
   const downbeat = Math.abs(beatInMeasure(beat, beatsPerBar)) < 1e-6;
 
   if (diff === "easy") {

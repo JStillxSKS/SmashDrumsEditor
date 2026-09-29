@@ -54,6 +54,11 @@ import {
 } from "../utils/indiesIO";
 import { importViewState } from "../utils/importView";
 import { isRlrrFile, parseRlrrFile } from "../utils/paradiddleIO";
+import {
+  isMidiFile,
+  midiFileToPackage,
+  midiSidecarAudioCandidates,
+} from "../utils/midiConvert";
 import { loadSiblingFile } from "../utils/siblingFile";
 import {
   FIXED_PIXELS_PER_TICK,
@@ -739,6 +744,44 @@ export const useEditorStore = create<EditorState>((set, get) => {
   },
 
   loadMeta: async (file) => {
+    if (isMidiFile(file)) {
+      let pkg;
+      try {
+        pkg = await midiFileToPackage(file);
+      } catch (err) {
+        window.alert(
+          err instanceof Error
+            ? `Could not convert this MIDI file.\n\n${err.message}`
+            : "Could not convert this MIDI file."
+        );
+        return;
+      }
+      const { meta, charts, report } = pkg;
+      const view = importViewState(charts);
+      set({
+        meta,
+        charts,
+        difficulty: view.difficulty,
+        scrollTick: view.scrollTick,
+        currentTime: 0,
+        isPlaying: false,
+        sourceIndiesPath: null,
+        clipboardMessage:
+          `Imported ${meta.NameSong} from MIDI — ${report.extremeCount} Extreme notes ` +
+          `(~${report.bpm} BPM ${report.timingMode}, ${report.channelMode}). ` +
+          `Load Song audio next.`,
+      });
+      for (const name of midiSidecarAudioCandidates(file.name)) {
+        const audioFile = await loadSiblingFile(file, name);
+        if (audioFile) {
+          await get().loadAudio(audioFile);
+          break;
+        }
+      }
+      resetHistoryStack();
+      return;
+    }
+
     if (isRlrrFile(file)) {
       const paradiddlePackage = await parseRlrrFile(file);
       if (!paradiddlePackage) {
@@ -983,6 +1026,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
         audioFile,
         coverFile: coverImageFile,
         audioBuffer,
+        onProgress: (message) => set({ clipboardMessage: message }),
       });
       const filename = `${sanitizeIndiesFilename(meta.NameSong || meta.NameArtist || "song")}.indies`;
       const hadOutputTarget = Boolean(get().sourceIndiesPath);

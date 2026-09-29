@@ -13,16 +13,18 @@
 
 ## Open
 
-### Audio: load MP3 → OGG for `.indies` (parked for next batch)
-
-5. **MP3 (etc.) in, real OGG out — separate convert if heavy**  
-   - Export still renames without re-encoding (don’t ship wrong packages).  
-   - Prefer separate connected convert step on mobile; desktop can encode in-process later.  
-   - **Not in batch 1** — keep charting smooth first.
+_(none)_
 
 ---
 
 ## Done
+
+### Batch 2 — 2026-09-29 (MIDI import + real OGG audio)
+
+| Item | Resolution |
+|------|------------|
+| MP3 (etc.) in, real OGG out | **Fixed.** `buildIndiesZip` now transcodes non-Ogg audio to real Ogg Vorbis with ffmpeg.wasm (`src/utils/audioTranscode.ts`, encoder lazily loaded from `public/ffmpeg/`, copied on install by `scripts/copy-ffmpeg-core.cjs`). Ogg sources pass through untouched. `meta.json` `FilePath` now matches the packaged audio name (`audio.ogg`). |
+| MIDI drums → chart | **Shipped.** Editor imports `.mid` / `.midi` directly (Import button or drag & drop) via `src/utils/midiConvert.ts` — same rule chain as `scripts/midi_to_smash.py` (drum-source pick, velocity floors, 1/16 snap, 1/8 hat limit, 2-pad chord cap, downchart, integer-beat tempo maps). Parity enforced by `scripts/compare-midi-convert.mts`. |
 
 ### Batch 1 — 2026-07-15 (mobile smoothness + layout)
 
@@ -39,4 +41,4 @@
 
 ## Parked / later
 
-_(none beyond open OGG convert)_
+_(none)_

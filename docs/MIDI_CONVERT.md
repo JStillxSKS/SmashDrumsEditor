@@ -2,7 +2,23 @@
 
 Turn General MIDI drum tracks into Smash Drums Editor charts (`.indies`).
 
-## Quick start
+## In the editor (no Python needed)
+
+**Import → pick a `.mid` / `.midi` file** (or drag it onto the Home screen).
+The editor converts it in-app using the same rule chain as the Python script
+below — charts match the converter output note-for-note. Song audio is
+auto-detected next to the MIDI (`song.ogg`, `Artist - Song.mp3`, …); otherwise
+load it with **🎵 Song** after import.
+
+What you get: Extreme on the MIDI's hits (snapped to the 1/16 grid), plus
+auto-thinned Hard / Normal / Easy, a tempo map with integer-beat anchors
+(multi-tempo MIDIs keep every tempo change that lands on a whole beat), and
+ Neutral-strength notes throughout. Everything is editable after import.
+
+## From the command line
+
+The bundled script does the same conversion with more knobs (audio tempo-fit,
+BPM override, batch folders, `.chart` + `song.ini` output):
 
 1. **Drag and drop** one or more `.mid` files onto  
    **`Desktop\Convert MIDI to Smash.bat`**

@@ -1,4 +1,5 @@
 import { createContext, useContext } from "react";
+import { isNativeApp } from "../utils/platform";
 
 /** Mobile charting shell vs full desktop chrome. No portrait/landscape split. */
 export type MobileLayoutPref = "mobile" | "desktop";
@@ -27,6 +28,7 @@ export const MobileLayoutContext = createContext<MobileLayoutContextValue | null
 export function detectMobileCapable(): boolean {
   if (typeof window === "undefined") return false;
   if (window.electronAPI?.isDesktop) return false;
+  if (isNativeApp()) return true;
   try {
     return window.matchMedia("(max-width: 900px), (pointer: coarse)").matches;
   } catch {

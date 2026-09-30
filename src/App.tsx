@@ -9,6 +9,7 @@ import { SidebarRight } from "./components/SidebarRight";
 import { Toolbar } from "./components/Toolbar";
 import { AuthProvider } from "./context/AuthContext";
 import { MobileLayoutProvider } from "./hooks/MobileLayoutProvider";
+import { useAndroidBackButton, useBackHandler } from "./hooks/useAndroidBackButton";
 import { useMobileLayout } from "./hooks/useMobileLayout";
 import { useShellStore } from "./store/useShellStore";
 import "./styles.css";
@@ -25,6 +26,12 @@ function EditorShell() {
     setLeftOpen(false);
     setRightOpen(false);
   };
+
+  // Hardware back (Android) closes an open drawer before anything else.
+  useBackHandler(() => {
+    closePanels();
+    return true;
+  }, leftOpen || rightOpen);
 
   return (
     <>
@@ -72,6 +79,7 @@ function EditorShell() {
 
 function IndiesShell() {
   const mode = useShellStore((s) => s.mode);
+  const backToast = useAndroidBackButton();
 
   return (
     <div className="shell-root app--future">
@@ -83,6 +91,7 @@ function IndiesShell() {
         {mode === "studio" && <EditorShell />}
         {mode === "exports" && <ExportsScreen />}
       </div>
+      {backToast && <div className="back-exit-toast">{backToast}</div>}
     </div>
   );
 }

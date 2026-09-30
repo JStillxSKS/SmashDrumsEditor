@@ -1,5 +1,11 @@
 apply plugin: 'com.android.application'
 
+// Keep the APK version in sync with the web app's package.json.
+def pkgJson = new groovy.json.JsonSlurper().parseText(new File(rootDir, "../package.json").text)
+def pkgVersion = pkgJson.version as String
+def vParts = pkgVersion.tokenize('.').collect { it.toInteger() }
+def pkgVersionCode = (vParts[0] * 100000) + (vParts[1] * 1000) + vParts[2]
+
 android {
     namespace = "com.smashdrums.editor"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +13,8 @@ android {
         applicationId "com.smashdrums.editor"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode pkgVersionCode
+        versionName pkgVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

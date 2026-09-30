@@ -409,3 +409,19 @@ html[data-mobile-layout="landscape"] .app.app--mobile .beatcode {
     font-size: 0.72rem;
   }
 }
+
+.back-exit-toast {
+  position: fixed;
+  bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  pointer-events: none;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(8, 8, 14, 0.92);
+  border: 1px solid rgba(255, 184, 0, 0.45);
+  color: #a5f3fc;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}

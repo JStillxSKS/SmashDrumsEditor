@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAuth } from "../context/AuthContext";
+import { useBackHandler } from "../hooks/useAndroidBackButton";
 import { INDIES_DB_ORIGIN } from "../lib/indiesDbPublish";
 import { supabase, supabaseConfigured } from "../lib/supabase";
 import { useEditorStore } from "../store/useEditorStore";
@@ -50,6 +51,12 @@ export function PublishModal({ open, onClose }: PublishModalProps) {
   const [explicit, setExplicit] = useState(false);
 
   const linkedMapId = meta.IndiesDbMapId?.trim();
+
+  // Hardware back (Android) closes the modal instead of leaving the app.
+  useBackHandler(() => {
+    onClose();
+    return true;
+  }, open);
 
   useEffect(() => {
     if (!open) return;

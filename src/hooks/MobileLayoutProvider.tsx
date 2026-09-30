@@ -12,10 +12,13 @@ import {
   writeStoredPref,
   type MobileLayoutPref,
 } from "./useMobileLayout";
+import { isNativeApp } from "../utils/platform";
 
 export function MobileLayoutProvider({ children }: { children: ReactNode }) {
-  const [pref, setPrefState] = useState<MobileLayoutPref | null>(() =>
-    readStoredPref()
+  // Inside the Android APK, default straight to the mobile shell on first run
+  // (the toolbar Layout button still lets the user pick the desktop layout).
+  const [pref, setPrefState] = useState<MobileLayoutPref | null>(
+    () => readStoredPref() ?? (isNativeApp() ? "mobile" : null)
   );
   const [mobileCapable, setMobileCapable] = useState(() => detectMobileCapable());
   const [reopenGate, setReopenGate] = useState(false);

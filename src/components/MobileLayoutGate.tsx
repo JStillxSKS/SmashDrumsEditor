@@ -1,4 +1,5 @@
 import { useMobileLayout, type MobileLayoutPref } from "../hooks/useMobileLayout";
+import { useBackHandler } from "../hooks/useAndroidBackButton";
 
 type Props = {
   open: boolean;
@@ -6,6 +7,12 @@ type Props = {
 
 export function MobileLayoutGate({ open }: Props) {
   const { setPref, closeGateWithoutChoice, pref, reopenGate } = useMobileLayout();
+
+  // Hardware back (Android) dismisses a reopened gate; first-run gate stays up.
+  useBackHandler(() => {
+    if (pref != null) closeGateWithoutChoice();
+    return true;
+  }, open);
 
   if (!open) return null;
 

@@ -1077,9 +1077,13 @@ export const useEditorStore = create<EditorState>((set, get) => {
       });
       const filename = `${sanitizeIndiesFilename(meta.NameSong || meta.NameArtist || "song")}.indies`;
       const hadOutputTarget = Boolean(get().sourceIndiesPath);
-      const result = await saveBlobFile(filename, blob, { backup: true });
+      const result = await saveBlobFile(filename, blob, { backup: true, share: true });
       const where =
-        result.method === "disk" ? result.path : `Downloads (${result.filename})`;
+        result.method === "disk"
+          ? result.path
+          : result.method === "native"
+            ? result.path
+            : `Downloads (${result.filename})`;
       const verb = hadOutputTarget ? "Updated" : "Saved";
       set({
         clipboardMessage: `${verb} ${where}`,
@@ -1206,7 +1210,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
         buildSongIni(built, charts, duration)
       );
       const where =
-        chartResult.method === "disk"
+        chartResult.method === "disk" || chartResult.method === "native"
           ? chartResult.path.replace(/[/\\][^/\\]+$/, "")
           : `${chartResult.method === "download" ? chartResult.filename : "notes.chart"} + ${iniResult.method === "download" ? iniResult.filename : "song.ini"}`;
       set({ clipboardMessage: `Exported ${where}` });

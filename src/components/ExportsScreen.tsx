@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { getOutputFolder, openOutputFolder } from "../utils/fileSave";
+import {
+  NATIVE_EXPORTS_DIR,
+  getOutputFolder,
+  listNativeExports,
+  openOutputFolder,
+  shareNativeExport,
+} from "../utils/fileSave";
+import { isNativeApp } from "../utils/platform";
 import { useEditorStore } from "../store/useEditorStore";
 import { useShellStore } from "../store/useShellStore";
 import {
@@ -36,6 +43,7 @@ export function ExportsScreen() {
   const [loading, setLoading] = useState(true);
   const [opening, setOpening] = useState<string | null>(null);
   const isDesktop = Boolean(window.electronAPI?.isDesktop);
+  const isNative = isNativeApp();
   const loadMeta = useEditorStore((s) => s.loadMeta);
   const exportIndies = useEditorStore((s) => s.exportIndies);
   const exporting = useEditorStore((s) => s.exportingIndies);
@@ -48,6 +56,12 @@ export function ExportsScreen() {
     setLoading(true);
     setError(null);
     try {
+      if (isNativeApp()) {
+        setDir(`Documents/${NATIVE_EXPORTS_DIR}`);
+        const list = await listNativeExports();
+        setFiles(list.map((f) => ({ name: f.name, path: f.uri, mtime: f.mtime, size: f.size })));
+        return;
+      }
       if (!window.electronAPI?.isDesktop) {
         setDir(null);
         setFiles([]);
@@ -116,7 +130,8 @@ export function ExportsScreen() {
         <p className="shell-home__eyebrow">Package · ship</p>
         <h1 className="shell-home__title">Exports</h1>
         <p className="shell-home__lead">
-          Finished <code>.indies</code> packs land here (desktop output folder). Package from
+          Finished <code>.indies</code> packs land here (
+          {isNative ? `Documents/${NATIVE_EXPORTS_DIR}` : "desktop output folder"}). Package from
           Studio when Extreme has notes and song audio is loaded.
         </p>
       </div>
@@ -136,28 +151,35 @@ export function ExportsScreen() {
           </button>
         )}
         {isDesktop && (
-          <>
-            <button type="button" className="shell-btn" onClick={() => void openOutputFolder()}>
-              Open folder
-            </button>
-            <button type="button" className="shell-btn" onClick={() => void refresh()}>
-              Refresh
-            </button>
-          </>
+          <button type="button" className="shell-btn" onClick={() => void openOutputFolder()}>
+            Open folder
+          </button>
+        )}
+        {(isDesktop || isNative) && (
+          <button type="button" className="shell-btn" onClick={() => void refresh()}>
+            Refresh
+          </button>
         )}
       </div>
 
       {message && <p className="shell-exports__toast">{message}</p>}
       {error && <p className="shell-exports__error">{error}</p>}
 
-      {!isDesktop && (
+      {!isDesktop && !isNative && (
         <p className="shell-exports__note">
           Browser mode downloads <code>.indies</code> via the browser. Run the desktop app for a
           persistent Exports folder.
         </p>
       )}
 
-      {isDesktop && (
+      {isNative && (
+        <p className="shell-exports__note">
+          Exports are saved to <code>Documents/{NATIVE_EXPORTS_DIR}</code> on this device. Tap one
+          to share it anywhere.
+        </p>
+      )}
+
+      {(isDesktop || isNative) && (
         <>
           <p className="shell-exports__path">
             Folder: <code>{dir ?? "…"}</code>
@@ -176,12 +198,18 @@ export function ExportsScreen() {
                     type="button"
                     className="shell-export-row"
                     disabled={opening === f.name}
-                    onClick={() => void openIndies(f)}
+                    onClick={() =>
+                      isNative ? void shareNativeExport(f.path, f.name) : void openIndies(f)
+                    }
                   >
                     <span className="shell-export-row__name">{f.name}</span>
                     <span className="shell-export-row__meta">
                       {formatBytes(f.size)} · {formatWhen(f.mtime)}
-                      {opening === f.name ? " · opening…" : " · open in Studio"}
+                      {opening === f.name
+                        ? " · opening…"
+                        : isNative
+                          ? " · share"
+                          : " · open in Studio"}
                     </span>
                   </button>
                 </li>

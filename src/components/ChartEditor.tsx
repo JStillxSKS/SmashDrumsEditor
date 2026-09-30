@@ -57,6 +57,8 @@ const POINTER_PAN_THRESHOLD = 12;
 /** Larger gem hit radius on coarse pointers. */
 const NOTE_HIT_PAD_MOBILE = 18;
 const NOTE_HIT_PAD_DESKTOP = 8;
+/** Hold this long (ms) on the mobile edit tool to start a selection drag. */
+const LONG_PRESS_MS = 450;
 
 type NoteSelectionState = {
   dragging: boolean;
@@ -604,15 +606,35 @@ export function ChartEditor() {
     id: number;
     startX: number;
     startY: number;
+    lastX: number;
     lastY: number;
     panning: boolean;
     selecting: boolean;
   } | null>(null);
+  /** Two-finger pinch-zoom state (client coords). */
+  const pinchRef = useRef<{
+    id1: number;
+    id2: number;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    startDist: number;
+    startPpt: number;
+  } | null>(null);
+  const longPressTimerRef = useRef(0);
   const [, setSelectionRevision] = useState(0);
   const bumpSelectionRevision = useCallback(
     () => setSelectionRevision((revision) => revision + 1),
     []
   );
+
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = 0;
+    }
+  }, []);
   const { isMobileShell } = useMobileLayout();
   const [mobileHintVisible, setMobileHintVisible] = useState(true);
 
@@ -1492,6 +1514,40 @@ export function ChartEditor() {
     []
   );
 
+  /** Mobile selection action bar handlers — same store calls as the keyboard shortcuts. */
+  const handleSelectionCopy = useCallback(() => {
+    const sel = noteSelectionRef.current;
+    if (!sel || sel.dragging) return;
+    void copyNotesInSelection(sel.anchorTick, sel.currentTick, sel.anchorCol, sel.currentCol);
+  }, [copyNotesInSelection]);
+
+  const handleSelectionPaste = useCallback(() => {
+    const state = useEditorStore.getState();
+    if (state.isPlaying || state.placementMode) return;
+    const strikeTick = snapTick(scrollTickAtClick(), state.snapTicks);
+    void pasteNotesAtStrikeTick(strikeTick);
+  }, [pasteNotesAtStrikeTick]);
+
+  const handleSelectionDelete = useCallback(() => {
+    const sel = noteSelectionRef.current;
+    if (!sel || sel.dragging) return;
+    const deleted = deleteNotesInSelection(
+      sel.anchorTick,
+      sel.currentTick,
+      sel.anchorCol,
+      sel.currentCol
+    );
+    if (deleted > 0) {
+      noteSelectionRef.current = null;
+      bumpSelectionRevision();
+    }
+  }, [deleteNotesInSelection, bumpSelectionRevision]);
+
+  const handleSelectionClear = useCallback(() => {
+    noteSelectionRef.current = null;
+    bumpSelectionRevision();
+  }, [bumpSelectionRevision]);
+
   useEffect(() => {
     const tickSelectionAutoScroll = () => {
       const selection = noteSelectionRef.current;
@@ -1546,6 +1602,37 @@ export function ChartEditor() {
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      const pinch = pinchRef.current;
+      if (pinch && (e.pointerId === pinch.id1 || e.pointerId === pinch.id2)) {
+        if (e.pointerId === pinch.id1) {
+          pinch.x1 = e.clientX;
+          pinch.y1 = e.clientY;
+        } else {
+          pinch.x2 = e.clientX;
+          pinch.y2 = e.clientY;
+        }
+        const dist = Math.hypot(pinch.x2 - pinch.x1, pinch.y2 - pinch.y1);
+        if (dist > 0 && pinch.startDist > 0) {
+          const state = useEditorStore.getState();
+          const canvas = canvasRef.current;
+          const rect = canvas?.getBoundingClientRect();
+          if (rect) {
+            // Keep the tick under the pinch midpoint anchored while zooming.
+            const midY = (pinch.y1 + pinch.y2) / 2 - rect.top;
+            const sy = rect.height - STRIKE_OFFSET;
+            const anchorTick = state.scrollTick + (sy - midY) / pinch.startPpt;
+            state.setPixelsPerTick(pinch.startPpt * (dist / pinch.startDist));
+            if (!state.isPlaying) {
+              const clamped = useEditorStore.getState().pixelsPerTick;
+              seekScrollTick(Math.max(0, anchorTick - (sy - midY) / clamped));
+            }
+          } else {
+            state.setPixelsPerTick(pinch.startPpt * (dist / pinch.startDist));
+          }
+        }
+        return;
+      }
+
       const gesture = pointerGestureRef.current;
       if (gesture && e.pointerId === gesture.id) {
         const canvas = canvasRef.current;
@@ -1584,6 +1671,7 @@ export function ChartEditor() {
         if (!gesture.panning) {
           if (Math.hypot(dx, dy) >= POINTER_PAN_THRESHOLD) {
             gesture.panning = true;
+            clearLongPressTimer();
             if (noteSelectionRef.current) {
               noteSelectionRef.current = null;
               bumpSelectionRevision();
@@ -1597,6 +1685,7 @@ export function ChartEditor() {
             const deltaY = y - gesture.lastY;
             seekScrollTick(state.scrollTick + deltaY / state.pixelsPerTick);
           }
+          gesture.lastX = x;
           gesture.lastY = y;
         }
         return;
@@ -1643,6 +1732,16 @@ export function ChartEditor() {
     };
 
     const onPointerUp = (e: PointerEvent) => {
+      clearLongPressTimer();
+
+      const pinch = pinchRef.current;
+      if (pinch && (e.pointerId === pinch.id1 || e.pointerId === pinch.id2)) {
+        // End pinch; swallow the remaining finger so it can't fire a tap.
+        pinchRef.current = null;
+        pointerGestureRef.current = null;
+        return;
+      }
+
       const gesture = pointerGestureRef.current;
       if (!gesture || e.pointerId !== gesture.id) {
         if (noteSelectionRef.current?.dragging) endSelectionDrag();
@@ -1719,8 +1818,9 @@ export function ChartEditor() {
         cancelAnimationFrame(selectionAutoScrollRef.current);
         selectionAutoScrollRef.current = 0;
       }
+      clearLongPressTimer();
     };
-  }, [applyEditAt, applySeekAt, bumpSelectionRevision, isMobileShell]);
+  }, [applyEditAt, applySeekAt, bumpSelectionRevision, clearLongPressTimer, isMobileShell]);
 
   const handleCanvasPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0 && e.pointerType === "mouse") return;
@@ -1730,6 +1830,37 @@ export function ChartEditor() {
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+
+    // Second touch while a gesture is active → pinch-zoom.
+    if (e.pointerType !== "mouse" && pointerGestureRef.current && !pinchRef.current) {
+      const first = pointerGestureRef.current;
+      clearLongPressTimer();
+      if (noteSelectionRef.current?.dragging) {
+        noteSelectionRef.current = null;
+        bumpSelectionRevision();
+      }
+      const x1 = rect.left + first.lastX;
+      const y1 = rect.top + first.lastY;
+      pinchRef.current = {
+        id1: first.id,
+        id2: e.pointerId,
+        x1,
+        y1,
+        x2: e.clientX,
+        y2: e.clientY,
+        startDist: Math.max(1, Math.hypot(e.clientX - x1, e.clientY - y1)),
+        startPpt: useEditorStore.getState().pixelsPerTick,
+      };
+      first.panning = true; // first finger's eventual pointerup must not tap
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {
+        // ignore
+      }
+      e.preventDefault();
+      return;
+    }
+    if (pinchRef.current) return; // extra fingers during pinch: ignore
 
     // Desktop Shift+drag selection (also works with mouse on mobile shell if connected)
     if (e.shiftKey && !isPlaying && y >= LANE_HEADER_H) {
@@ -1755,6 +1886,7 @@ export function ChartEditor() {
         id: e.pointerId,
         startX: x,
         startY: y,
+        lastX: x,
         lastY: y,
         panning: false,
         selecting: true,
@@ -1774,12 +1906,53 @@ export function ChartEditor() {
       id: e.pointerId,
       startX: x,
       startY: y,
+      lastX: x,
       lastY: y,
       panning: false,
       selecting: false,
     };
     canvas.setPointerCapture(e.pointerId);
     e.preventDefault();
+
+    // Mobile edit tool: holding a finger down starts a selection drag.
+    clearLongPressTimer();
+    if (
+      isMobileShell &&
+      e.pointerType !== "mouse" &&
+      !isPlaying &&
+      !placementMode &&
+      y >= LANE_HEADER_H
+    ) {
+      longPressTimerRef.current = window.setTimeout(() => {
+        longPressTimerRef.current = 0;
+        const gesture = pointerGestureRef.current;
+        if (!gesture || gesture.panning || gesture.selecting) return;
+        const state = useEditorStore.getState();
+        if (state.isPlaying || state.placementMode || state.editorTool !== "edit") return;
+        const liveCanvas = canvasRef.current;
+        if (!liveCanvas) return;
+        const liveRect = liveCanvas.getBoundingClientRect();
+        const chart = pointerToChart(
+          x,
+          y,
+          state.scrollTick,
+          liveRect.width,
+          liveRect.height,
+          state.pixelsPerTick
+        );
+        noteSelectionRef.current = {
+          dragging: true,
+          anchorTick: chart.tick,
+          anchorCol: chart.col,
+          currentTick: chart.tick,
+          currentCol: chart.col,
+          pointerX: x,
+          pointerY: y,
+        };
+        gesture.selecting = true;
+        bumpSelectionRevision();
+      }, LONG_PRESS_MS);
+    }
   };
 
   const wrapModeClass =
@@ -1826,16 +1999,37 @@ export function ChartEditor() {
             }}
           >
             {editorTool === "seek"
-              ? "Seek — tap highway · drag to pan"
-              : "Edit — tap strike color to place · tap gem to remove · drag to pan"}
+              ? "Seek — tap highway · drag to pan · pinch to zoom"
+              : "Edit — tap to place/remove · drag to pan · hold to select · pinch to zoom"}
           </div>
         )}
-        {!placementMode && hasNoteSelection && (
+        {!placementMode && hasNoteSelection && !isMobileShell && (
           <div className="placement-hint selection-hint">
             Notes selected —
             <span className="placement-hint-key">C</span> copy
             <span className="placement-hint-key">Del</span> delete
             <span className="placement-hint-key">Esc</span> clear
+          </div>
+        )}
+        {!placementMode && hasNoteSelection && isMobileShell && (
+          <div className="selection-action-bar" role="toolbar" aria-label="Selection actions">
+            <span className="selection-action-bar__label">Selected</span>
+            <button type="button" className="selection-action-btn" onClick={handleSelectionCopy}>
+              Copy
+            </button>
+            <button type="button" className="selection-action-btn" onClick={handleSelectionPaste}>
+              Paste
+            </button>
+            <button
+              type="button"
+              className="selection-action-btn selection-action-btn--danger"
+              onClick={handleSelectionDelete}
+            >
+              Delete
+            </button>
+            <button type="button" className="selection-action-btn" onClick={handleSelectionClear}>
+              Clear
+            </button>
           </div>
         )}
         {clipboardMessage && !placementMode && (

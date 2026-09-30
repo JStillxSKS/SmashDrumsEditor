@@ -197,7 +197,7 @@ export function SidebarLeft() {
           </p>
         </div>
 
-        <div className="panel-section mobile-hide-strength">
+        <div className="panel-section">
           <p className="panel-section-title">Strength</p>
           <div className="btn-group btn-group-equal">
             {STRENGTHS.map((s) => {

@@ -306,11 +306,6 @@
   cursor: pointer;
 }
 
-/* Hide niche strength UI on mobile shell (still available on desktop) */
-.app.app--mobile .mobile-hide-strength {
-  display: none !important;
-}
-
 /* Zoom buttons */
 .zoom-btn-row {
   display: flex;
@@ -424,4 +419,52 @@ html[data-mobile-layout="landscape"] .app.app--mobile .beatcode {
   color: #a5f3fc;
   font-size: 0.8rem;
   white-space: nowrap;
+}
+
+.selection-action-bar {
+  position: absolute;
+  top: calc(52px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: rgba(8, 8, 14, 0.92);
+  border: 1px solid rgba(255, 184, 0, 0.45);
+  touch-action: manipulation;
+}
+
+.selection-action-bar__label {
+  color: #a5f3fc;
+  font-size: 0.72rem;
+  padding: 0 4px 0 6px;
+  white-space: nowrap;
+}
+
+.selection-action-btn {
+  min-height: 36px;
+  min-width: 52px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.07);
+  color: #e2e8f0;
+  font-size: 0.78rem;
+  touch-action: manipulation;
+}
+
+.selection-action-btn:active {
+  background: rgba(255, 184, 0, 0.22);
+}
+
+.selection-action-btn--danger {
+  border-color: rgba(248, 113, 113, 0.5);
+  color: #fca5a5;
+}
+
+.selection-action-btn--danger:active {
+  background: rgba(248, 113, 113, 0.22);
 }

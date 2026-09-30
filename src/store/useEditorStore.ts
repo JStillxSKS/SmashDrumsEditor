@@ -60,6 +60,8 @@ import {
   midiSidecarAudioCandidates,
 } from "../utils/midiConvert";
 import { loadSiblingFile } from "../utils/siblingFile";
+import { isNativeApp } from "../utils/platform";
+import { pickAudioFile } from "../utils/pickAudioFile";
 import {
   FIXED_PIXELS_PER_TICK,
   RESOLUTION,
@@ -734,10 +736,23 @@ export const useEditorStore = create<EditorState>((set, get) => {
     const skipped: string[] = [];
     const stems = [...get().laneStems];
     const names = [...get().laneStemNames];
+    // Phones: each stem decodes to a full-length float32 buffer — cap count and
+    // size or the WebView runs out of memory mid-song.
+    const onMobile = isNativeApp();
+    const MAX_STEMS_MOBILE = 3;
+    const MAX_STEM_BYTES_MOBILE = 25 * 1024 * 1024;
     for (const file of files) {
       const col = laneColumnFromStemName(file.name);
       if (col === null) {
         skipped.push(file.name);
+        continue;
+      }
+      if (onMobile && matched.length >= MAX_STEMS_MOBILE) {
+        skipped.push(`${file.name} (mobile limit: ${MAX_STEMS_MOBILE} stems)`);
+        continue;
+      }
+      if (onMobile && file.size > MAX_STEM_BYTES_MOBILE) {
+        skipped.push(`${file.name} (too large for mobile)`);
         continue;
       }
       try {
@@ -862,6 +877,15 @@ export const useEditorStore = create<EditorState>((set, get) => {
         const audioFile = await loadSiblingFile(file, audioFileName);
         if (audioFile) {
           await get().loadAudio(audioFile);
+        } else if (isNativeApp()) {
+          // No sidecar reads on Android — offer to pick the audio right away.
+          set({
+            clipboardMessage: `Imported ${meta.NameSong} (${noteCount} notes)`,
+          });
+          if (window.confirm(`Chart imported. Pick the song audio now?\n(${audioFileName})`)) {
+            const picked = await pickAudioFile();
+            if (picked) await get().loadAudio(picked);
+          }
         } else {
           set({
             clipboardMessage: `Imported ${meta.NameSong} (${noteCount} notes) — use Song to load ${audioFileName} from the same folder.`,

@@ -624,10 +624,12 @@ export function ChartEditor() {
   } | null>(null);
   const longPressTimerRef = useRef(0);
   const [, setSelectionRevision] = useState(0);
-  const bumpSelectionRevision = useCallback(
-    () => setSelectionRevision((revision) => revision + 1),
-    []
-  );
+  /** Canvas repaint flag — set by store subscribe, resize, and selection bumps. */
+  const canvasDirtyRef = useRef(true);
+  const bumpSelectionRevision = useCallback(() => {
+    canvasDirtyRef.current = true;
+    setSelectionRevision((revision) => revision + 1);
+  }, []);
 
   const clearLongPressTimer = useCallback(() => {
     if (longPressTimerRef.current) {
@@ -712,6 +714,15 @@ export function ChartEditor() {
     let raf = 0;
     const lite = isMobileShell;
 
+    // Idle throttle: repaint only when state changed, playback runs, or a
+    // gesture is in flight — otherwise the rAF loop burns battery for nothing.
+    const markDirty = () => {
+      canvasDirtyRef.current = true;
+    };
+    const unsubscribeStore = useEditorStore.subscribe(markDirty);
+    const resizeObserver = new ResizeObserver(markDirty);
+    if (wrapRef.current) resizeObserver.observe(wrapRef.current);
+
     const canvasDpr = () => {
       const raw = window.devicePixelRatio || 1;
       // Cap resolution on phones — big win for fill rate
@@ -737,6 +748,15 @@ export function ChartEditor() {
 
     const draw = () => {
       raf = requestAnimationFrame(draw);
+
+      const interacting =
+        pointerGestureRef.current !== null ||
+        pinchRef.current !== null ||
+        noteSelectionRef.current?.dragging === true;
+      if (!canvasDirtyRef.current && !interacting && !useEditorStore.getState().isPlaying) {
+        return;
+      }
+      canvasDirtyRef.current = false;
 
       const wrap = wrapRef.current;
       const ctx = canvas.getContext("2d");
@@ -1290,7 +1310,11 @@ export function ChartEditor() {
     };
 
     draw();
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      unsubscribeStore();
+      resizeObserver.disconnect();
+    };
   }, [
     meta.SongTiming,
     meta.SongPhases,

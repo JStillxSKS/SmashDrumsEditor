@@ -106,8 +106,20 @@ export function SongOverview() {
     let raf = 0;
     const lite = isMobileShell;
 
+    // Idle throttle: repaint only when state changed or playback runs.
+    let dirty = true;
+    const markDirty = () => {
+      dirty = true;
+    };
+    const unsubscribeStore = useEditorStore.subscribe(markDirty);
+    const resizeObserver = new ResizeObserver(markDirty);
+    if (wrapRef.current) resizeObserver.observe(wrapRef.current);
+
     const draw = () => {
       raf = requestAnimationFrame(draw);
+
+      if (!dirty && !useEditorStore.getState().isPlaying) return;
+      dirty = false;
 
       const wrap = wrapRef.current;
       const ctx = canvas.getContext("2d");
@@ -328,7 +340,11 @@ export function SongOverview() {
     };
 
     draw();
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      unsubscribeStore();
+      resizeObserver.disconnect();
+    };
   }, [
     meta.SongTiming,
     meta.SongPhases,

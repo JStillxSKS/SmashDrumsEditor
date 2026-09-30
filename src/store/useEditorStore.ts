@@ -74,6 +74,7 @@ import {
   type TimeSignature,
 } from "../utils/resolution";
 import { editorAudioContext } from "../utils/editorAudioContext";
+import { laneColumnFromStemName } from "../utils/stemLanes";
 import { editorAudioPlayer, syncEditorAudioPlayerFromState } from "../utils/editorAudioPlayer";
 import { clampPlaybackSpeed } from "../utils/playbackSpeed";
 import { INDIES_AUDIO_FILE } from "../utils/audioFormat";
@@ -158,6 +159,10 @@ type EditorState = {
   drumsAudioUrl: string | null;
   drumsAudioFileName: string | null;
   drumsAudioBuffer: AudioBuffer | null;
+  /** Per-lane stem buffers (index = highway column). Lanes without a stem
+   * fall back to the shared mix/drums waveform. */
+  laneStems: (AudioBuffer | null)[];
+  laneStemNames: (string | null)[];
   audioSource: AudioSource;
   duration: number;
   currentTime: number;
@@ -218,6 +223,11 @@ type EditorState = {
   setIsPlaying: (p: boolean) => void;
   loadAudio: (file: File) => Promise<void>;
   loadDrumsAudio: (file: File) => Promise<void>;
+  /** Decode stem files and route each to its lane by filename keyword.
+   * Lanes keep their stem until replaced or the session resets. */
+  loadLaneStems: (
+    files: File[]
+  ) => Promise<{ matched: string[]; skipped: string[] }>;
   loadCoverImage: (file: File) => Promise<void>;
   clearCoverImage: () => void;
   setAudioSource: (source: AudioSource) => void;
@@ -316,6 +326,8 @@ export const useEditorStore = create<EditorState>((set, get) => {
   drumsAudioUrl: null,
   drumsAudioFileName: null,
   drumsAudioBuffer: null,
+  laneStems: [null, null, null, null, null, null],
+  laneStemNames: [null, null, null, null, null, null],
   audioSource: "song",
   duration: 0,
   currentTime: 0,
@@ -717,6 +729,39 @@ export const useEditorStore = create<EditorState>((set, get) => {
     }
   },
 
+  loadLaneStems: async (files) => {
+    const matched: string[] = [];
+    const skipped: string[] = [];
+    const stems = [...get().laneStems];
+    const names = [...get().laneStemNames];
+    for (const file of files) {
+      const col = laneColumnFromStemName(file.name);
+      if (col === null) {
+        skipped.push(file.name);
+        continue;
+      }
+      try {
+        if (editorAudioContext.state === "suspended") await editorAudioContext.resume();
+        const buf = await file.arrayBuffer();
+        stems[col] = await editorAudioContext.decodeAudioData(buf.slice(0));
+        names[col] = file.name;
+        matched.push(file.name);
+      } catch {
+        skipped.push(file.name);
+      }
+    }
+    set({
+      laneStems: stems,
+      laneStemNames: names,
+      clipboardMessage:
+        matched.length > 0
+          ? `Lane stems: ${matched.join(", ")}` +
+            (skipped.length ? ` — unrecognized: ${skipped.join(", ")}` : "")
+          : `No stems recognized — name files with kick/snare/cym/tom/hat/clap`,
+    });
+    return { matched, skipped };
+  },
+
   setAudioSource: (audioSource) => {
     set({ audioSource });
     syncEditorAudioPlayerFromState(get());
@@ -967,6 +1012,8 @@ export const useEditorStore = create<EditorState>((set, get) => {
       drumsAudioUrl: null,
       drumsAudioFileName: null,
       drumsAudioBuffer: null,
+      laneStems: [null, null, null, null, null, null],
+      laneStemNames: [null, null, null, null, null, null],
       audioSource: "song",
       duration: 0,
       bpmDetecting: false,

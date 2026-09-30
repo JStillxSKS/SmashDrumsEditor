@@ -74,6 +74,7 @@ export function Toolbar({
     meta,
     loadAudio,
     loadDrumsAudio,
+    loadLaneStems,
     loadMeta,
     exportIndies,
     exportingIndies,
@@ -567,6 +568,23 @@ export function Toolbar({
             }}
           />
         </label>
+        <label
+          className="file-btn"
+          title="Load drum stems (multi-select) — filenames with kick / snare / cym / crash / tom / hat / clap give each lane its own waveform"
+        >
+          🎚 Stems
+          <input
+            type="file"
+            multiple
+            accept="audio/*,.mp3,.wav,.ogg,.flac,.m4a,.aac"
+            hidden
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              e.target.value = "";
+              if (files.length > 0) void loadLaneStems(files);
+            }}
+          />
+        </label>
         {window.electronAPI?.isDesktop ? (
           <button
             className="file-btn"
@@ -617,11 +635,13 @@ export function Toolbar({
         <button
           className="btn publish-toolbar-btn"
           type="button"
-          disabled={exportingIndies || publishingIndies || !canPlay}
+          disabled={exportingIndies || publishingIndies}
           title={
-            meta.IndiesDbMapId
-              ? "Update this map on Indies-DB"
-              : "Publish to Indies-DB (indies-db.vercel.app)"
+            !canPlay
+              ? "Load song audio before publishing to Indies-DB"
+              : meta.IndiesDbMapId
+                ? "Update this map on Indies-DB"
+                : "Publish to Indies-DB (indies-db.vercel.app)"
           }
           onClick={() => setPublishOpen(true)}
         >

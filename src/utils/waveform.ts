@@ -85,6 +85,13 @@ export function buildWaveformByTick(
 
   if (maxAmp <= 0) return peaks;
 
-  const normalized = peaks.map((p) => ({ tick: p.tick, amp: p.amp / maxAmp }));
+  // Normalize against a high percentile instead of the global max, so drum
+  // transients reach the top of the range instead of being squashed by the
+  // loudest moment of the song (the "plosives aren't visible" fix).
+  const sorted = peaks.map((p) => p.amp).sort((a, b) => a - b);
+  const norm = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))] || maxAmp;
+  const scale = norm > 0 ? norm : maxAmp;
+
+  const normalized = peaks.map((p) => ({ tick: p.tick, amp: Math.min(1, p.amp / scale) }));
   return smoothPeaks(normalized, 2);
 }

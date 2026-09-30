@@ -36,7 +36,8 @@ type PublishModalProps = {
 export function PublishModal({ open, onClose }: PublishModalProps) {
   const { user, loading: authLoading, signInWithPassword, signUpWithPassword, signOut } =
     useAuth();
-  const { meta, publishingIndies, publishToIndiesDb } = useEditorStore();
+  const { meta, publishingIndies, publishToIndiesDb, audioFile, audioBuffer } = useEditorStore();
+  const hasAudio = Boolean(audioFile && audioBuffer);
 
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
@@ -245,13 +246,16 @@ export function PublishModal({ open, onClose }: PublishModalProps) {
               </button>
             </p>
 
+            {!hasAudio && (
+              <p className="publish-error">Load song audio before publishing to Indies-DB.</p>
+            )}
             {publishError && <p className="publish-error">{publishError}</p>}
 
             <div className="publish-actions">
               <button
                 type="button"
                 className="btn publish-btn"
-                disabled={publishingIndies}
+                disabled={publishingIndies || !hasAudio}
                 onClick={() => void handlePublish()}
               >
                 {publishingIndies

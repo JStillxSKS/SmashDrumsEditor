@@ -57,6 +57,109 @@ function enrichWaveSamples(samples: WaveDrawSample[]): WaveDrawSample[] {
   return out;
 }
 
+/**
+ * Ableton-style lane waveform: a solid, flat fill in the lane color with a
+ * darker edge outline — no glow, no lens line. Past renders fuller, future
+ * stays readable. Strong transients still get an accent tick.
+ */
+export function drawLaneWaveStroke(
+  ctx: CanvasRenderingContext2D,
+  samples: WaveDrawSample[],
+  cx: number,
+  maxHalf: number,
+  mode: "past" | "future",
+  style: WaveDrawStyle = {}
+) {
+  const tint = style.tintColor;
+  const intensity = style.intensity ?? 1;
+  const visible = enrichWaveSamples(
+    samples
+      .filter((s) => s.amp >= 0.01)
+      .map((s) => ({ pos: s.pos, amp: Math.min(1, s.amp) }))
+  );
+  if (visible.length < 2) return;
+
+  // Transient exaggeration — spike each sample by its excess over the local
+  // average so plosives tower over the body of the waveform instead of
+  // blending in. Boosted amps drive both the fill shape and the accent ticks.
+  const n = visible.length;
+  for (let i = 0; i < n; i++) {
+    let sum = 0;
+    let count = 0;
+    for (let d = -3; d <= 3; d++) {
+      const j = i + d;
+      if (j < 0 || j >= n) continue;
+      sum += visible[j].amp;
+      count++;
+    }
+    const localAvg = sum / Math.max(1, count);
+    const spike = Math.max(0, visible[i].amp - localAvg);
+    if (spike > 0) visible[i].amp = Math.min(1, visible[i].amp + spike * 1.8);
+  }
+
+  const halves = visible.map((sample) => ({
+    pos: sample.pos,
+    half: Math.max(2, Math.pow(sample.amp, 0.9) * maxHalf),
+  }));
+
+  // Closed mirrored shape: out along the top edge, back along the bottom.
+  const shape = new Path2D();
+  halves.forEach((point, i) => {
+    if (i === 0) shape.moveTo(cx + point.half, point.pos);
+    else shape.lineTo(cx + point.half, point.pos);
+  });
+  for (let i = halves.length - 1; i >= 0; i--) {
+    shape.lineTo(cx - halves[i].half, halves[i].pos);
+  }
+  shape.closePath();
+
+  const past = mode === "past";
+
+  ctx.save();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  // Solid flat fill.
+  ctx.fillStyle = tint
+    ? rgba(tint, (past ? 0.42 : 0.24) * intensity)
+    : past
+      ? "rgba(0, 190, 230, 0.38)"
+      : "rgba(60, 90, 130, 0.22)";
+  ctx.fill(shape);
+
+  // Darker edge outline — the Ableton look.
+  if (tint) {
+    const [r, g, b] = hexToRgb(tint);
+    ctx.strokeStyle = `rgba(${Math.round(r * 0.5)},${Math.round(g * 0.5)},${Math.round(b * 0.5)},${(past ? 0.9 : 0.65) * intensity})`;
+  } else {
+    ctx.strokeStyle = past
+      ? "rgba(0, 110, 150, 0.9)"
+      : "rgba(40, 60, 90, 0.6)";
+  }
+  ctx.lineWidth = 1;
+  ctx.stroke(shape);
+
+  // Transient accents — strong pops get a tick across the lane.
+  if (tint) {
+    ctx.lineWidth = past ? 1.75 : 1.25;
+    for (let i = 0; i < visible.length; i++) {
+      const amp = visible[i].amp;
+      if (amp < 0.38) continue;
+      const a =
+        (past ? 0.7 : 0.4) *
+        intensity *
+        Math.min(1, (amp - 0.35) / 0.6);
+      ctx.strokeStyle = rgba(tint, a);
+      ctx.beginPath();
+      ctx.moveTo(cx - halves[i].half - 3, halves[i].pos);
+      ctx.lineTo(cx + halves[i].half + 3, halves[i].pos);
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
+}
+
 /** Mirrored cyan envelope — shared by highway and song scrollbar */
 export function drawMirroredWaveEnvelope(
   ctx: CanvasRenderingContext2D,
@@ -185,14 +288,14 @@ export function drawMirroredWaveEnvelope(
   } else {
     const grad = ctx.createLinearGradient(cx - maxHalf, 0, cx + maxHalf, 0);
     if (tint) {
-      // Keep lanes color-coded ahead of the playhead instead of generic blue-gray.
-      grad.addColorStop(0, rgba(tint, 0.02 * intensity));
-      grad.addColorStop(0.5, rgba(tint, 0.2 * intensity));
-      grad.addColorStop(1, rgba(tint, 0.02 * intensity));
+      // Upcoming audio stays clearly readable per lane while mapping (not just dim).
+      grad.addColorStop(0, rgba(tint, 0.05 * intensity));
+      grad.addColorStop(0.5, rgba(tint, 0.38 * intensity));
+      grad.addColorStop(1, rgba(tint, 0.05 * intensity));
     } else {
-      grad.addColorStop(0, "rgba(35, 55, 80, 0.04)");
-      grad.addColorStop(0.5, "rgba(65, 95, 130, 0.28)");
-      grad.addColorStop(1, "rgba(35, 55, 80, 0.04)");
+      grad.addColorStop(0, "rgba(35, 55, 80, 0.08)");
+      grad.addColorStop(0.5, "rgba(65, 95, 130, 0.42)");
+      grad.addColorStop(1, "rgba(35, 55, 80, 0.08)");
     }
     ctx.fillStyle = grad;
     ctx.fill(topPath);
@@ -205,11 +308,11 @@ export function drawMirroredWaveEnvelope(
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   ctx.strokeStyle = tint
-    ? rgba(tint, (mode === "past" ? 0.46 : 0.26) * intensity)
+    ? rgba(tint, (mode === "past" ? 0.46 : 0.38) * intensity)
     : mode === "past"
       ? "rgba(255, 210, 80, 0.5)"
-      : "rgba(80, 110, 150, 0.28)";
-  ctx.lineWidth = mode === "past" ? 1.25 : 0.75;
+      : "rgba(80, 110, 150, 0.4)";
+  ctx.lineWidth = mode === "past" ? 1.25 : 1;
 
   ctx.beginPath();
   halves.forEach((point, i) => {

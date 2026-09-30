@@ -32,7 +32,7 @@ import { editorAudioPlayer } from "../utils/editorAudioPlayer";
 import { playDrumHit } from "../utils/drumHits";
 import { getSongOffset, isInSilentLeadIn } from "../utils/offset";
 import { beatToTime, timeToBeat } from "../utils/timing";
-import { drawMirroredWaveEnvelope } from "../utils/waveDraw";
+import { drawLaneWaveStroke } from "../utils/waveDraw";
 import { viewportTickRange } from "../utils/noteClipboard";
 import { buildWaveformByTick, type WavePeak } from "../utils/waveform";
 import { getLaneWaveformBuffer } from "../utils/audioSource";
@@ -590,7 +590,7 @@ function scrollTickAtClick(): number {
 export function ChartEditor() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const laneWavePeaksRef = useRef<WavePeak[]>([]);
+  const laneWavePeaksRef = useRef<WavePeak[][]>([]);
   const phaseBlinkRef = useRef<{
     lastBeat: number | null;
     blinkPhase: SongPhase | null;
@@ -629,6 +629,7 @@ export function ChartEditor() {
     audioFileName,
     drumsAudioBuffer,
     drumsAudioFileName,
+    laneStems,
     audioSource,
     duration,
     waveScale,
@@ -658,22 +659,24 @@ export function ChartEditor() {
 
   useEffect(() => {
     const state = useEditorStore.getState();
-    const laneBuffer = getLaneWaveformBuffer(state);
-    if (laneBuffer) {
-      // Coarser peaks on mobile (fewer samples to draw)
-      const bin = isMobileShell ? 48 : 16;
-      laneWavePeaksRef.current = buildWaveformByTick(
-        laneBuffer,
-        meta.SongTiming,
-        getSongOffset(meta),
-        bin
-      );
+    const shared = getLaneWaveformBuffer(state);
+    // Coarser peaks on mobile (fewer samples to draw)
+    const bin = isMobileShell ? 48 : 16;
+    const build = (buffer: AudioBuffer | null): WavePeak[] =>
+      buffer
+        ? buildWaveformByTick(buffer, meta.SongTiming, getSongOffset(meta), bin)
+        : [];
+    const anyStems = state.laneStems.some((s) => s !== null);
+    if (isMobileShell || !anyStems) {
+      laneWavePeaksRef.current = [build(shared)];
     } else {
-      laneWavePeaksRef.current = [];
+      // Per-lane stems: each lane renders its own audio shape.
+      laneWavePeaksRef.current = state.laneStems.map((stem) => build(stem ?? shared));
     }
   }, [
     audioBuffer,
     drumsAudioBuffer,
+    laneStems,
     audioSource,
     meta.SongTiming,
     meta.SongOffsetSeconds,
@@ -813,49 +816,57 @@ export function ChartEditor() {
       ctx.lineWidth = 1;
       ctx.strokeRect(trackX - 0.5, 0, trackW + 1, h);
 
-      const lanePeaks = laneWavePeaksRef.current;
       const scale = useEditorStore.getState().waveScale;
 
-      // Waveforms: full per-lane on desktop; single center mono strip on mobile
-      if (lanePeaks.length > 0 && duration > 0) {
+      // Waveforms: full per-lane on desktop; single center mono strip on mobile.
+      // With stems loaded, each lane draws its own peaks (index = column).
+      const lanePeaksList = laneWavePeaksRef.current;
+      const hasAnyPeaks = lanePeaksList.some((p) => p.length > 0);
+      if (duration > 0) {
         if (lite) {
-          const cx = trackX + trackW / 2;
-          const half = Math.min(trackW * 0.22, 48) * scale;
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(trackX, LANE_HEADER_H, trackW, sy - LANE_HEADER_H);
-          ctx.clip();
-          const style = { tintColor: `rgb(${T.neonRgb})`, intensity: 0.35 };
-          drawMirroredWaveEnvelope(
-            ctx,
-            highwayWaveSamples(lanePeaks, scrollTick, ppt, sy, h, chartTime, timing, "future"),
-            cx,
-            half,
-            "future",
-            style
-          );
-          drawMirroredWaveEnvelope(
-            ctx,
-            highwayWaveSamples(lanePeaks, scrollTick, ppt, sy, h, chartTime, timing, "past"),
-            cx,
-            half,
-            "past",
-            style
-          );
-          ctx.restore();
+          const lanePeaks = lanePeaksList[0] ?? [];
+          if (lanePeaks.length > 0) {
+            const cx = trackX + trackW / 2;
+            const half = Math.min(trackW * 0.22, 48) * scale;
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(trackX, LANE_HEADER_H, trackW, sy - LANE_HEADER_H);
+            ctx.clip();
+            const style = { tintColor: `rgb(${T.neonRgb})`, intensity: 0.55 };
+            drawLaneWaveStroke(
+              ctx,
+              highwayWaveSamples(lanePeaks, scrollTick, ppt, sy, h, chartTime, timing, "future"),
+              cx,
+              half,
+              "future",
+              style
+            );
+            drawLaneWaveStroke(
+              ctx,
+              highwayWaveSamples(lanePeaks, scrollTick, ppt, sy, h, chartTime, timing, "past"),
+              cx,
+              half,
+              "past",
+              style
+            );
+            ctx.restore();
+          }
         } else {
           DRUM_LANES.forEach((lane, col) => {
+            const lanePeaks = lanePeaksList[col] ?? lanePeaksList[0] ?? [];
+            if (lanePeaks.length === 0) return;
+
             const lx = laneLeft(trackX, col, laneW, laneGap);
             const cx = laneCenter(trackX, col, laneW, laneGap);
             const laneHalf = laneW * 0.4 * scale;
-            const laneStyle = { tintColor: lane.color, intensity: 0.58 };
+            const laneStyle = { tintColor: lane.color, intensity: 0.8 };
 
             ctx.save();
             ctx.beginPath();
             ctx.rect(lx, LANE_HEADER_H, laneW, sy - LANE_HEADER_H);
             ctx.clip();
 
-            drawMirroredWaveEnvelope(
+            drawLaneWaveStroke(
               ctx,
               highwayWaveSamples(lanePeaks, scrollTick, ppt, sy, h, chartTime, timing, "future"),
               cx,
@@ -863,7 +874,7 @@ export function ChartEditor() {
               "future",
               laneStyle
             );
-            drawMirroredWaveEnvelope(
+            drawLaneWaveStroke(
               ctx,
               highwayWaveSamples(lanePeaks, scrollTick, ppt, sy, h, chartTime, timing, "past"),
               cx,
@@ -874,7 +885,8 @@ export function ChartEditor() {
             ctx.restore();
           });
         }
-      } else if (!audioBuffer && !drumsAudioBuffer) {
+      }
+      if (!hasAnyPeaks && !audioBuffer && !drumsAudioBuffer) {
         ctx.fillStyle = "rgba(255,255,255,0.15)";
         ctx.font = "13px Inter, system-ui, sans-serif";
         ctx.textAlign = "center";

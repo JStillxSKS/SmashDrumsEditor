@@ -70,3 +70,6 @@ scripts/__pycache__/
 scripts/align-undead-timing.mjs
 # ffmpeg.wasm core (copied from node_modules by scripts/copy-ffmpeg-core.cjs)
 public/ffmpeg/
+.vercel
+.env*
+!.env.example

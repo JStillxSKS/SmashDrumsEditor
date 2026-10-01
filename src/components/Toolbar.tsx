@@ -612,7 +612,7 @@ export function Toolbar({
             📂 Import
             <input
               type="file"
-              accept=".indies,.rlrr,.json,.chart,application/json,application/zip"
+              accept=".indies,.rlrr,.json,.chart,application/json,application/zip,*/*"
               hidden
               onChange={(e) => {
                 const f = e.target.files?.[0];

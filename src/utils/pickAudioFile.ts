@@ -58,7 +58,9 @@ export async function pickImportPackageFile(): Promise<FileWithPath | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".indies,.rlrr,.json,.chart,application/json,application/zip";
+    // "*/*" fallback: Android/Capacitor pickers grey out files whose
+    // extension maps to no known MIME (like .indies) without it.
+    input.accept = ".indies,.rlrr,.json,.chart,application/json,application/zip,*/*";
     input.style.display = "none";
     document.body.appendChild(input);
     input.addEventListener(

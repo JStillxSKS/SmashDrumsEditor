@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { spawn } = require("node:child_process");
 const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const {
   getOutputRoot,
@@ -102,8 +103,8 @@ ipcMain.handle("import:pickFile", async () => {
     properties: ["openFile"],
     filters: [
       {
-        name: "Smash Drums / MIDI / Paradiddle / Clone Hero",
-        extensions: ["indies", "mid", "midi", "rlrr", "json", "chart"],
+        name: "Smash Drums / Paradiddle / Clone Hero",
+        extensions: ["indies", "rlrr", "json", "chart"],
       },
       { name: "All files", extensions: ["*"] },
     ],
@@ -266,6 +267,248 @@ ipcMain.handle("output:listRecovery", () => {
       return { name: entry.name, path: full, mtime: fs.statSync(full).mtimeMs };
     })
     .sort((a, b) => b.mtime - a.mtime);
+});
+
+// ---------------------------------------------------------------------------
+// Auto-Charter (Python CLI) — audio file → .indies drum chart
+// ---------------------------------------------------------------------------
+
+const AUTO_CHARTER_SCRIPT = "auto_charter.py";
+const PYTHON_DETECT_TIMEOUT_MS = 10_000;
+const AUTO_CHARTER_ERROR_TAIL = 50;
+
+// One run at a time: concurrent runs would race on the same output folder
+// name and share Auto-Charter's .cache work dirs.
+let autoCharterInFlight = false;
+
+function findAutoCharterDir() {
+  const home = process.env.USERPROFILE || app.getPath("home");
+  const candidates = [
+    process.env.AUTO_CHARTER_HOME,
+    path.join(home, "Desktop", "Auto-Charter"),
+    path.join(app.getAppPath(), "..", "..", "Auto-Charter"),
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const dir = path.normalize(String(candidate));
+    try {
+      if (fs.existsSync(path.join(dir, AUTO_CHARTER_SCRIPT))) return dir;
+    } catch {
+      /* keep looking */
+    }
+  }
+  return null;
+}
+
+/** Resolves { pythonPath } when `python --version` answers within the timeout. */
+function detectPython() {
+  return new Promise((resolve) => {
+    let proc;
+    try {
+      proc = spawn("python", ["--version"], { windowsHide: true });
+    } catch (err) {
+      resolve({ pythonPath: null, reason: `could not spawn python: ${String(err)}` });
+      return;
+    }
+    let settled = false;
+    let output = "";
+    const finish = (pythonPath, reason) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ pythonPath, reason });
+    };
+    const timer = setTimeout(() => {
+      try {
+        proc.kill();
+      } catch {
+        /* already gone */
+      }
+      finish(null, "`python --version` did not answer within 10s");
+    }, PYTHON_DETECT_TIMEOUT_MS);
+    proc.stdout?.on("data", (chunk) => {
+      output += chunk;
+    });
+    proc.stderr?.on("data", (chunk) => {
+      output += chunk;
+    });
+    proc.on("error", (err) => finish(null, `python not found: ${err.message}`));
+    proc.on("exit", (code) => {
+      if (code === 0) {
+        finish("python", null);
+      } else {
+        finish(null, `\`python --version\` exited ${code}: ${output.trim() || "no output"}`);
+      }
+    });
+  });
+}
+
+ipcMain.handle("autocharter:status", async () => {
+  const autoCharterDir = findAutoCharterDir();
+  const python = await detectPython();
+  const available = Boolean(python.pythonPath && autoCharterDir);
+  let reason = null;
+  if (!available) {
+    if (!python.pythonPath && !autoCharterDir) {
+      reason = `${python.reason}; Auto-Charter folder not found (set AUTO_CHARTER_HOME)`;
+    } else if (!python.pythonPath) {
+      reason = python.reason;
+    } else {
+      reason = "Auto-Charter folder not found (expected auto_charter.py; set AUTO_CHARTER_HOME)";
+    }
+  }
+  return { available, pythonPath: python.pythonPath, autoCharterDir, reason };
+});
+
+ipcMain.handle("autocharter:run", (event, { audioPath } = {}) => {
+  const autoCharterDir = findAutoCharterDir();
+  if (!autoCharterDir) {
+    throw new Error(
+      "Auto-Charter installation not found. Expected auto_charter.py in " +
+        "AUTO_CHARTER_HOME, Desktop\\Auto-Charter, or next to this app."
+    );
+  }
+  const audio = path.normalize(String(audioPath || ""));
+  if (!audio || !fs.existsSync(audio)) {
+    throw new Error(`Audio file not found: ${audio || "(empty path)"}`);
+  }
+  const outRoot = ensureOutputRoot();
+  if (autoCharterInFlight) {
+    throw new Error("An Auto-Charter run is already in progress.");
+  }
+  autoCharterInFlight = true;
+
+  return new Promise((resolve, reject) => {
+    const settle = (fn, value) => {
+      autoCharterInFlight = false;
+      fn(value);
+    };
+    const send = (line) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send("autocharter:progress", line);
+      }
+    };
+
+    let proc;
+    try {
+      // No --force: the output root is the user's chart library, and Auto-Charter
+      // would otherwise silently overwrite an existing same-title chart. Without
+      // it the tool writes "Title (2).indies" instead, which the parser below
+      // resolves from the printed `Indies:` line.
+      proc = spawn("python", [AUTO_CHARTER_SCRIPT, audio, "--out", outRoot], {
+        cwd: autoCharterDir,
+        windowsHide: true,
+      });
+    } catch (err) {
+      settle(reject, new Error(`Could not start Auto-Charter: ${String(err)}`));
+      return;
+    }
+
+    const tail = []; // ring of recent lines for error reports
+    const pushLine = (line) => {
+      tail.push(line);
+      if (tail.length > 200) tail.shift();
+      send(line);
+    };
+    const makeLinePump = () => {
+      let pending = "";
+      return {
+        feed(chunk) {
+          pending += chunk;
+          const parts = pending.split(/\r?\n/);
+          pending = parts.pop() ?? "";
+          for (const line of parts) pushLine(line);
+        },
+        flush() {
+          if (pending.length > 0) {
+            pushLine(pending);
+            pending = "";
+          }
+        },
+      };
+    };
+    const stdout = makeLinePump();
+    const stderr = makeLinePump();
+    proc.stdout?.on("data", stdout.feed);
+    proc.stderr?.on("data", stderr.feed);
+
+    proc.on("error", (err) => {
+      settle(reject, new Error(`Could not start Auto-Charter (python): ${err.message}`));
+    });
+
+    // No timeout: ML model downloads + separation can take several minutes.
+    // 'close' (not 'exit'): stdio streams are drained by then, so the final
+    // `Indies:` line cannot be lost to a pipe-buffer race.
+    proc.on("close", (code, signal) => {
+      stdout.flush();
+      stderr.flush();
+      if (code !== 0) {
+        const detail = tail.slice(-AUTO_CHARTER_ERROR_TAIL).join("\n");
+        settle(
+          reject,
+          new Error(
+            `Auto-Charter failed (exit code ${code}${signal ? `, signal ${signal}` : ""}).\n\nLast output:\n${detail}`
+          )
+        );
+        return;
+      }
+
+      let indiesPath = null;
+      for (let i = tail.length - 1; i >= 0; i--) {
+        const m = tail[i].match(/Indies:\s+(.+?\.indies)\s*$/i);
+        if (m) {
+          const candidate = path.normalize(m[1]);
+          if (fs.existsSync(candidate)) {
+            indiesPath = candidate;
+            break;
+          }
+        }
+      }
+      if (!indiesPath) {
+        // Fallback: newest *.indies in the output root by mtime.
+        const indiesFiles = fs
+          .readdirSync(outRoot, { withFileTypes: true })
+          .filter((entry) => entry.isFile())
+          .filter((entry) => entry.name.toLowerCase().endsWith(".indies"))
+          .map((entry) => path.join(outRoot, entry.name))
+          .filter((full) => fs.existsSync(full));
+        if (indiesFiles.length > 0) {
+          indiesFiles.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+          indiesPath = indiesFiles[0];
+        }
+      }
+      if (!indiesPath) {
+        const detail = tail.slice(-AUTO_CHARTER_ERROR_TAIL).join("\n");
+        settle(
+          reject,
+          new Error(
+            `Auto-Charter finished but no .indies file was found.\n\nLast output:\n${detail}`
+          )
+        );
+        return;
+      }
+
+      let report = null;
+      const titleFolder = path.join(
+        path.dirname(indiesPath),
+        path.basename(indiesPath, ".indies")
+      );
+      const reportPath = path.join(titleFolder, "qc_report.txt");
+      try {
+        if (fs.existsSync(reportPath)) report = fs.readFileSync(reportPath, "utf8");
+      } catch {
+        report = null;
+      }
+
+      const data = fs.readFileSync(indiesPath);
+      settle(resolve, {
+        name: path.basename(indiesPath),
+        path: indiesPath,
+        bytes: Array.from(data),
+        report,
+      });
+    });
+  });
 });
 
 app.whenReady().then(async () => {

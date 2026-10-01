@@ -9,8 +9,7 @@ A desktop chart editor for [Smash Drums](https://smashdrums.com/) custom songs. 
 | Guide | Description |
 |-------|-------------|
 | [User Guide](docs/USER_GUIDE.md) | How to chart songs, use the highway editor, timing, and export |
-| [File Formats](docs/FILE_FORMATS.md) | Import/export formats (`.indies`, `meta.json`, Clone Hero charts) |
-| [MIDI → Smash](docs/MIDI_CONVERT.md) | Import MIDI drum tracks directly in the editor, or convert from the command line |
+| [File Formats](docs/FILE_FORMATS.md) | Import/export formats (`.indies`, `meta.json`, Clone Hero charts) + Auto-Chart from audio |
 | [Development](docs/DEVELOPMENT.md) | Setup, scripts, building the portable EXE, project layout |
 | [Android APK](docs/ANDROID_APK.md) | Phone/tablet install — **APK only** for non-tech users |
 | [Mobile feedback backlog](docs/MOBILE_FEEDBACK_BACKLOG.md) | Collect mobile/APK notes; **bulk fix + one push** (not one-by-one) |
@@ -42,7 +41,8 @@ npm run desktop:dev
 - Note strengths: Crystal, Neutral, Burning
 - BPM editing, auto-detect, timing anchors, and song phases
 - Audio offset / silent lead-in
-- Import `.indies`, MIDI (`.mid` / `.midi`), `meta.json`, Paradiddle `.rlrr`, or Clone Hero `.chart`
+- Import `.indies`, `meta.json`, Paradiddle `.rlrr`, or Clone Hero `.chart`
+- Auto-Chart from audio (desktop app): pick a song file and the bundled Auto-Charter integration (Python CLI) generates a draft `.indies` chart for you to refine
 - Export Smash Drums `.indies` packages or Clone Hero `notes.chart` + `song.ini` to `SmashDrumsEditor/output/` (dev) or an `output/` folder next to the portable `.exe` (desktop app); re-export updates the same file when loaded or previously saved there
 
 ## Disclaimer

@@ -24,7 +24,7 @@ _(none)_
 | Item | Resolution |
 |------|------------|
 | MP3 (etc.) in, real OGG out | **Fixed.** `buildIndiesZip` now transcodes non-Ogg audio to real Ogg Vorbis with ffmpeg.wasm (`src/utils/audioTranscode.ts`, encoder lazily loaded from `public/ffmpeg/`, copied on install by `scripts/copy-ffmpeg-core.cjs`). Ogg sources pass through untouched. `meta.json` `FilePath` now matches the packaged audio name (`audio.ogg`). |
-| MIDI drums → chart | **Shipped.** Editor imports `.mid` / `.midi` directly (Import button or drag & drop) via `src/utils/midiConvert.ts` — same rule chain as `scripts/midi_to_smash.py` (drum-source pick, velocity floors, 1/16 snap, 1/8 hat limit, 2-pad chord cap, downchart, integer-beat tempo maps). Parity enforced by `scripts/compare-midi-convert.mts`. |
+| MIDI drums → chart | **Removed.** In-app `.mid` / `.midi` import (`src/utils/midiConvert.ts`) was deleted — output quality was poor. Replaced by **Auto-Chart from audio** (desktop): the Auto-Charter Python CLI generates a draft `.indies` from a song file, imported straight into the editor. |
 
 ### Batch 1 — 2026-07-15 (mobile smoothness + layout)
 

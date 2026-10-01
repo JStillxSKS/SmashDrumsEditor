@@ -25,4 +25,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   listIndiesFiles: () => ipcRenderer.invoke("output:listIndies"),
   readSiblingFile: (sourceFilePath, siblingName) =>
     ipcRenderer.invoke("fs:readSibling", { sourceFilePath, siblingName }),
+  autoCharterStatus: () => ipcRenderer.invoke("autocharter:status"),
+  runAutoCharter: (audioPath) => ipcRenderer.invoke("autocharter:run", { audioPath }),
+  onAutoCharterProgress: (callback) => {
+    const listener = (_event, line) => callback(line);
+    ipcRenderer.on("autocharter:progress", listener);
+    return () => {
+      ipcRenderer.removeListener("autocharter:progress", listener);
+    };
+  },
 });

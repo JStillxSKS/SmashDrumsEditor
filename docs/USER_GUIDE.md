@@ -32,7 +32,8 @@ The editor has three main areas:
 | **BPM** | Whole-number song tempo. **Sync** estimates BPM from audio; **Tap** (or key `T`) locks tempo by tapping beats while playing |
 | **Song** | Load full mix audio (mp3, wav, ogg, flac, m4a, aac) |
 | **Drums** | Load isolated drums stem for charting |
-| **Import** | Load `.indies`, MIDI (`.mid` / `.midi` auto-chart), `meta.json`, Paradiddle `.rlrr`, or Clone Hero `.chart` |
+| **Import** | Load `.indies`, `meta.json`, Paradiddle `.rlrr`, or Clone Hero `.chart` |
+| **Auto-Chart** | Desktop: generate a draft `.indies` chart from a song file via the Auto-Charter Python CLI |
 | **Export .indies** | Download a Smash Drums Indies package (meta, audio, cover, preview) |
 | **Export CH chart + song.ini** | Download Clone Hero chart and ini files |
 

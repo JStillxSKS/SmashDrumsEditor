@@ -4,9 +4,10 @@ Full implementation plan for the 18 proposed features, mapped to the current arc
 
 > **Status (2026-09-29):** several "not yet shipped" items below have since landed —
 > undo/redo (`src/store/history.ts`), tap tempo (`src/utils/tapTempo.ts`), difficulty
-> downchart (`src/utils/downchart.ts`), note stats (`src/utils/chartStats.ts`), BPM
-> detect, and **native MIDI import** (`src/utils/midiConvert.ts` — imports `.mid` /
-> `.midi` directly, same rule chain as `scripts/midi_to_smash.py`). This document is
+> downchart (`src/utils/downchart.ts` — Harmonix RBN reduction rules ported from
+> Auto-Charter), note stats (`src/utils/chartStats.ts`), BPM detect, and **Auto-Chart
+> from audio** (desktop: the Auto-Charter Python CLI turns a song file into a draft
+> `.indies`; replaced the removed in-app MIDI import). This document is
 > kept as the original plan; treat the shipped list above as ground truth.
 
 **Already shipped (partial overlap):**

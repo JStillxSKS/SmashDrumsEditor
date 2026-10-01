@@ -1,6 +1,8 @@
 import { useCallback, useState, type DragEvent } from "react";
 import { useEditorStore } from "../store/useEditorStore";
 import { useShellStore } from "../store/useShellStore";
+import { AutoChartModal } from "./AutoChartModal";
+import { useAutoCharterStatus } from "../hooks/useAutoCharterStatus";
 import {
   createProjectId,
   titleFromAudioFileName,
@@ -28,6 +30,8 @@ function formatWhen(ts: number): string {
 export function HomeScreen() {
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [autoChartPick, setAutoChartPick] = useState<{ path: string; name: string } | null>(null);
+  const autoCharterStatus = useAutoCharterStatus();
   const startFreshSession = useEditorStore((s) => s.startFreshSession);
   const loadMeta = useEditorStore((s) => s.loadMeta);
   const meta = useEditorStore((s) => s.meta);
@@ -110,6 +114,29 @@ export function HomeScreen() {
     }
   }, [loadMeta, openStudioWithProject]);
 
+  const onAutoChart = useCallback(async () => {
+    const file = await pickAudioFile();
+    if (!file?.path) return;
+    setAutoChartPick({ path: file.path, name: file.name });
+  }, []);
+
+  const onAutoChartClose = useCallback(
+    (imported: boolean) => {
+      setAutoChartPick(null);
+      if (!imported) return;
+      const state = useEditorStore.getState();
+      openStudioWithProject({
+        id: createProjectId(),
+        title: state.meta.NameSong || "Auto-chartered song",
+        artist: state.meta.NameArtist || "Unknown Artist",
+        updatedAt: Date.now(),
+        source: "import",
+        audioName: state.audioFileName ?? undefined,
+      });
+    },
+    [openStudioWithProject]
+  );
+
   const onContinue = useCallback(() => {
     const state = useEditorStore.getState();
     openStudioWithProject({
@@ -133,9 +160,7 @@ export function HomeScreen() {
         name.endsWith(".indies") ||
         name.endsWith(".chart") ||
         name.endsWith(".json") ||
-        name.endsWith(".rlrr") ||
-        name.endsWith(".mid") ||
-        name.endsWith(".midi")
+        name.endsWith(".rlrr")
       ) {
         setBusy(true);
         try {
@@ -196,9 +221,30 @@ export function HomeScreen() {
         </button>
         <button type="button" className="shell-tile" disabled={busy} onClick={onImport}>
           <span className="shell-tile__kicker">Open</span>
-          <span className="shell-tile__label">Import .indies / chart</span>
-          <span className="shell-tile__hint">Continue an existing pack</span>
+          <span className="shell-tile__label">Import .indies / .chart</span>
+          <span className="shell-tile__hint">Paradiddle .rlrr and meta.json work too</span>
         </button>
+        {window.electronAPI?.isDesktop && (
+          <button
+            type="button"
+            className="shell-tile"
+            disabled={busy || !autoCharterStatus?.available}
+            title={
+              autoCharterStatus?.available
+                ? undefined
+                : `Auto-Chart unavailable — ${autoCharterStatus?.reason ?? "checking installation…"}`
+            }
+            onClick={onAutoChart}
+          >
+            <span className="shell-tile__kicker">Auto-Chart</span>
+            <span className="shell-tile__label">Chart from audio (AI)</span>
+            <span className="shell-tile__hint">
+              {autoCharterStatus?.available
+                ? "Song → draft .indies via Auto-Charter"
+                : "Needs Python + Auto-Charter"}
+            </span>
+          </button>
+        )}
         <button
           type="button"
           className="shell-tile"
@@ -258,6 +304,14 @@ export function HomeScreen() {
           cleared — full on-disk project folders come next.
         </p>
       </section>
+
+      {autoChartPick && (
+        <AutoChartModal
+          audioPath={autoChartPick.path}
+          audioName={autoChartPick.name}
+          onClose={onAutoChartClose}
+        />
+      )}
     </div>
   );
 }

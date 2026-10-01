@@ -48,6 +48,19 @@ declare global {
         sourceFilePath: string,
         siblingName: string
       ) => Promise<{ name: string; bytes: number[]; mimeType: string } | null>;
+      autoCharterStatus: () => Promise<{
+        available: boolean;
+        pythonPath: string | null;
+        autoCharterDir: string | null;
+        reason: string | null;
+      }>;
+      runAutoCharter: (audioPath: string) => Promise<{
+        name: string;
+        path: string;
+        bytes: number[];
+        report: string | null;
+      }>;
+      onAutoCharterProgress: (callback: (line: string) => void) => () => void;
     };
   }
 }

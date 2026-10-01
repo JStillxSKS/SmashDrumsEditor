@@ -54,11 +54,6 @@ import {
 } from "../utils/indiesIO";
 import { importViewState } from "../utils/importView";
 import { isRlrrFile, parseRlrrFile } from "../utils/paradiddleIO";
-import {
-  isMidiFile,
-  midiFileToPackage,
-  midiSidecarAudioCandidates,
-} from "../utils/midiConvert";
 import { loadSiblingFile } from "../utils/siblingFile";
 import { isNativeApp } from "../utils/platform";
 import { pickAudioFile } from "../utils/pickAudioFile";
@@ -804,44 +799,6 @@ export const useEditorStore = create<EditorState>((set, get) => {
   },
 
   loadMeta: async (file) => {
-    if (isMidiFile(file)) {
-      let pkg;
-      try {
-        pkg = await midiFileToPackage(file);
-      } catch (err) {
-        window.alert(
-          err instanceof Error
-            ? `Could not convert this MIDI file.\n\n${err.message}`
-            : "Could not convert this MIDI file."
-        );
-        return;
-      }
-      const { meta, charts, report } = pkg;
-      const view = importViewState(charts);
-      set({
-        meta,
-        charts,
-        difficulty: view.difficulty,
-        scrollTick: view.scrollTick,
-        currentTime: 0,
-        isPlaying: false,
-        sourceIndiesPath: null,
-        clipboardMessage:
-          `Imported ${meta.NameSong} from MIDI — ${report.extremeCount} Extreme notes ` +
-          `(~${report.bpm} BPM ${report.timingMode}, ${report.channelMode}). ` +
-          `Load Song audio next.`,
-      });
-      for (const name of midiSidecarAudioCandidates(file.name)) {
-        const audioFile = await loadSiblingFile(file, name);
-        if (audioFile) {
-          await get().loadAudio(audioFile);
-          break;
-        }
-      }
-      resetHistoryStack();
-      return;
-    }
-
     if (isRlrrFile(file)) {
       const paradiddlePackage = await parseRlrrFile(file);
       if (!paradiddlePackage) {
@@ -995,7 +952,8 @@ export const useEditorStore = create<EditorState>((set, get) => {
     recordHistory("chart");
     const generated = generateLowerDifficulties(
       charts.extreme,
-      getTimeSignature(get().meta)
+      getTimeSignature(get().meta),
+      get().meta.SongTiming
     );
     set({
       charts: { ...charts, ...generated },
@@ -1074,7 +1032,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
         set({ charts, strength: NEUTRAL_STRENGTH });
       }
     }
-    const filled = chartsWithAutoDownchart(charts, getTimeSignature(meta));
+    const filled = chartsWithAutoDownchart(charts, getTimeSignature(meta), meta.SongTiming);
     if (filled !== charts) {
       charts = filled;
       set({ charts });
@@ -1140,7 +1098,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
         set({ charts, strength: NEUTRAL_STRENGTH });
       }
     }
-    const filled = chartsWithAutoDownchart(charts, getTimeSignature(meta));
+    const filled = chartsWithAutoDownchart(charts, getTimeSignature(meta), meta.SongTiming);
     if (filled !== charts) {
       charts = filled;
       set({ charts });
@@ -1212,7 +1170,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
         set({ charts, strength: NEUTRAL_STRENGTH });
       }
     }
-    const filled = chartsWithAutoDownchart(charts, getTimeSignature(meta));
+    const filled = chartsWithAutoDownchart(charts, getTimeSignature(meta), meta.SongTiming);
     if (filled !== charts) {
       charts = filled;
       set({ charts });

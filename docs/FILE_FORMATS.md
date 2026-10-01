@@ -4,15 +4,16 @@ Smash Drums Editor reads and writes several formats used by Smash Drums Indies c
 
 ## Import
 
-Use **Import** in the toolbar (or drag a file onto the Home screen). Accepted extensions: `.indies`, `.mid` / `.midi`, `.rlrr`, `.json`, `.chart`
+Use **Import** in the toolbar (or drag a file onto the Home screen). Accepted extensions: `.indies`, `.rlrr`, `.json`, `.chart`
 
-### `.mid` / `.midi` (MIDI drum tracks)
+### Auto-Chart from audio (desktop)
 
-Converted in-app to a full chart session — same rule chain as `scripts/midi_to_smash.py`
-(drum-track detection, velocity floors, 1/16 grid snap, 1/8 hi-hat limit, 2-pad chord cap,
-auto-thinned Hard/Normal/Easy, integer-beat tempo maps). Song audio is auto-detected next
-to the MIDI when possible; otherwise load it with **🎵 Song** after import.
-See [MIDI_CONVERT.md](MIDI_CONVERT.md) for details.
+The desktop app can generate a draft chart straight from a song file: **⚡ Auto-Chart**
+(toolbar or Home screen) runs the Auto-Charter Python CLI (`auto_charter.py`) on the audio
+(mp3 / ogg / wav / flac) and imports the resulting `.indies`. Requires `python` on PATH and
+an Auto-Charter install (found via `AUTO_CHARTER_HOME`, `Desktop/Auto-Charter`, or next to
+the app). The run's QC verdict is shown when it finishes; treat the result as an editing
+draft.
 
 ### `.indies` (Smash Drums Indies package)
 

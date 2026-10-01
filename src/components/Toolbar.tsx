@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PublishModal } from "./PublishModal";
+import { AutoChartModal } from "./AutoChartModal";
 import { useEditorStore } from "../store/useEditorStore";
 import {
   getOutputFolder,
@@ -32,6 +33,8 @@ import { RESOLUTION, beatToTick, formatTick } from "../utils/resolution";
 import { bpmFromAnchors } from "../utils/timing";
 import { beatToTime, timeToBeat } from "../utils/timing";
 import { pickImportFileDesktop } from "../utils/importFile";
+import { pickAudioFile } from "../utils/pickAudioFile";
+import { useAutoCharterStatus } from "../hooks/useAutoCharterStatus";
 import { redoDepth, undoDepth } from "../store/history";
 import { useMobileLayout } from "../hooks/useMobileLayout";
 
@@ -61,6 +64,8 @@ export function Toolbar({
   rightOpen = false,
 }: ToolbarProps) {
   const [publishOpen, setPublishOpen] = useState(false);
+  const [autoChartPick, setAutoChartPick] = useState<{ path: string; name: string } | null>(null);
+  const autoCharterStatus = useAutoCharterStatus();
   const [outputDir, setOutputDir] = useState<string | null>(null);
   const { openGate } = useMobileLayout();
   const {
@@ -589,7 +594,7 @@ export function Toolbar({
           <button
             className="file-btn"
             type="button"
-            title="Import .indies, MIDI, .rlrr (Paradiddle), meta.json, or Clone Hero .chart"
+            title="Import .indies, .rlrr (Paradiddle), meta.json, or Clone Hero .chart"
             onClick={() => {
               void (async () => {
                 const file = await pickImportFileDesktop();
@@ -602,12 +607,12 @@ export function Toolbar({
         ) : (
           <label
             className="file-btn"
-            title="Import .indies, MIDI, .rlrr (Paradiddle), meta.json, or Clone Hero .chart"
+            title="Import .indies, .rlrr (Paradiddle), meta.json, or Clone Hero .chart"
           >
             📂 Import
             <input
               type="file"
-              accept=".indies,.rlrr,.json,.chart,.mid,.midi,application/json,application/zip"
+              accept=".indies,.rlrr,.json,.chart,application/json,application/zip"
               hidden
               onChange={(e) => {
                 const f = e.target.files?.[0];
@@ -616,6 +621,26 @@ export function Toolbar({
               }}
             />
           </label>
+        )}
+        {window.electronAPI?.isDesktop && (
+          <button
+            className="file-btn"
+            type="button"
+            disabled={!autoCharterStatus?.available}
+            title={
+              autoCharterStatus?.available
+                ? "Auto-Chart from audio: pick a song, Auto-Charter builds a draft .indies chart"
+                : `Auto-Chart unavailable — ${autoCharterStatus?.reason ?? "checking installation…"}`
+            }
+            onClick={() => {
+              void (async () => {
+                const file = await pickAudioFile();
+                if (file?.path) setAutoChartPick({ path: file.path, name: file.name });
+              })();
+            }}
+          >
+            ⚡ Auto-Chart
+          </button>
         )}
         <button
           className="btn export-btn"
@@ -680,6 +705,13 @@ export function Toolbar({
       </div>
 
       <PublishModal open={publishOpen} onClose={() => setPublishOpen(false)} />
+      {autoChartPick && (
+        <AutoChartModal
+          audioPath={autoChartPick.path}
+          audioName={autoChartPick.name}
+          onClose={() => setAutoChartPick(null)}
+        />
+      )}
     </header>
   );
 }

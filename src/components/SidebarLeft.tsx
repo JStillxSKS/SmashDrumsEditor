@@ -75,7 +75,7 @@ export function SidebarLeft() {
         badge={songBadge}
         defaultOpen
       >
-        <div className="field-stack-song">
+        <div className="field-stack-song" data-tutorial="sidebar-metadata">
           <label>
             Artist
             <input

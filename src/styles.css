@@ -1664,3 +1664,149 @@ body {
     grid-template-columns: 1fr;
   }
 }
+/* ---- "Chart your first song" guided tutorial ---- */
+
+.tutorial-root {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  pointer-events: none;
+}
+
+.tutorial-spotlight {
+  position: fixed;
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 0 0 9999px rgba(4, 6, 10, 0.72);
+  pointer-events: none;
+  transition: left 0.18s ease, top 0.18s ease, width 0.18s ease, height 0.18s ease;
+}
+
+.tutorial-tooltip {
+  position: fixed;
+  pointer-events: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  padding: 1rem 1.1rem;
+  max-width: 340px;
+}
+
+.tutorial-tooltip--sheet {
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  top: auto;
+  width: auto;
+  max-width: none;
+}
+
+.tutorial-progress {
+  margin-bottom: 0.6rem;
+}
+
+.tutorial-kicker {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.35rem;
+}
+
+.tutorial-progressbar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.tutorial-progressbar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.25s ease;
+}
+
+.tutorial-title {
+  margin: 0 0 0.45rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.tutorial-body {
+  margin: 0 0 0.9rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.tutorial-gate-hint {
+  margin: 0 0 0.9rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--accent);
+  background: var(--accent-glow);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.65rem;
+}
+
+.tutorial-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.tutorial-btn {
+  flex: 0 0 auto;
+}
+
+.tutorial-btn--quiet {
+  margin-right: auto;
+  opacity: 0.75;
+}
+
+.tutorial-btn--primary {
+  margin-left: auto;
+}
+
+/* Home screen "Learn" banner */
+.shell-learn-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  width: 100%;
+  text-align: left;
+  margin: 1.1rem 0 0;
+  padding: 0.9rem 1.1rem;
+  background: linear-gradient(135deg, rgba(255, 184, 0, 0.14), rgba(255, 184, 0, 0.04));
+  border: 1px solid rgba(255, 184, 0, 0.35);
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.shell-learn-banner:hover {
+  border-color: var(--accent);
+}
+
+.shell-learn-banner__icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.shell-learn-banner__title {
+  display: block;
+  font-weight: 700;
+  font-size: 0.98rem;
+}
+
+.shell-learn-banner__hint {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}

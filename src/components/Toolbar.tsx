@@ -35,6 +35,7 @@ import { beatToTime, timeToBeat } from "../utils/timing";
 import { pickImportFileDesktop } from "../utils/importFile";
 import { pickAudioFile } from "../utils/pickAudioFile";
 import { useAutoCharterStatus } from "../hooks/useAutoCharterStatus";
+import { useTutorialStore } from "../store/useTutorialStore";
 import { redoDepth, undoDepth } from "../store/history";
 import { useMobileLayout } from "../hooks/useMobileLayout";
 
@@ -468,6 +469,7 @@ export function Toolbar({
         </button>
         <div
           className={`toolbar-bpm${tapTempoActive ? " toolbar-bpm--tapping" : ""}`}
+          data-tutorial="toolbar-bpm"
           title={
             bpmConfidence !== null
               ? `Last sync confidence ${Math.round(bpmConfidence * 100)}%. Whole-number BPM — notes stay on beats.`
@@ -549,7 +551,7 @@ export function Toolbar({
       </div>
 
       <div className="toolbar-right">
-        <label className="file-btn">
+        <label className="file-btn" data-tutorial="toolbar-song">
           🎵 Song
           <input
             type="file"
@@ -645,6 +647,7 @@ export function Toolbar({
         <button
           className="btn export-btn"
           type="button"
+          data-tutorial="toolbar-export"
           disabled={exportingIndies || publishingIndies}
           title={
             sourceIndiesPath
@@ -674,6 +677,15 @@ export function Toolbar({
         </button>
         <button className="btn" onClick={() => void exportChart()}>
           Export CH chart + song.ini
+        </button>
+        <button
+          className="btn"
+          type="button"
+          data-tutorial="toolbar-help"
+          title="Guided tour: chart your first song"
+          onClick={() => useTutorialStore.getState().start(0)}
+        >
+          ? Tutorial
         </button>
         {window.electronAPI?.isDesktop && (
           <div className="toolbar-output" title={outputDir ?? "Output folder"}>

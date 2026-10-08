@@ -1995,7 +1995,7 @@ export function ChartEditor() {
 
   return (
     <div className={`chart-stage${isMobileShell ? " chart-stage--mobile" : ""}`}>
-      <div className={`chart-wrap ${wrapModeClass}`} ref={wrapRef}>
+      <div className={`chart-wrap ${wrapModeClass}`} ref={wrapRef} data-tutorial="chart-highway">
         <canvas
           ref={canvasRef}
           className="chart-canvas"

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { ChartEditor } from "./components/ChartEditor";
 import { ExportsScreen } from "./components/ExportsScreen";
 import { HomeScreen } from "./components/HomeScreen";
@@ -7,6 +8,7 @@ import { SidebarDrawer, useSidebarDrawers } from "./components/SidebarDrawer";
 import { SidebarLeft } from "./components/SidebarLeft";
 import { SidebarRight } from "./components/SidebarRight";
 import { Toolbar } from "./components/Toolbar";
+import { TutorialOverlay } from "./components/Tutorial/TutorialOverlay";
 import { AuthProvider } from "./context/AuthContext";
 import { MobileLayoutProvider } from "./hooks/MobileLayoutProvider";
 import { useAndroidBackButton, useBackHandler } from "./hooks/useAndroidBackButton";
@@ -33,9 +35,17 @@ function EditorShell() {
     return true;
   }, leftOpen || rightOpen);
 
+  // The guided tutorial can ask for the left drawer (song metadata on mobile).
+  useEffect(() => {
+    const openLeft = () => setLeftOpen(true);
+    window.addEventListener("sde:tutorial-open-left", openLeft);
+    return () => window.removeEventListener("sde:tutorial-open-left", openLeft);
+  }, [setLeftOpen]);
+
   return (
     <>
       <MobileLayoutGate open={showGate} />
+      <TutorialOverlay />
       <div
         className={`app app--future${isMobileShell ? " app--mobile" : ""}`}
         data-mobile-shell={isMobileShell ? "1" : "0"}

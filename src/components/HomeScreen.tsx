@@ -3,6 +3,7 @@ import { useEditorStore } from "../store/useEditorStore";
 import { useShellStore } from "../store/useShellStore";
 import { AutoChartModal } from "./AutoChartModal";
 import { useAutoCharterStatus } from "../hooks/useAutoCharterStatus";
+import { useTutorialStore } from "../store/useTutorialStore";
 import {
   createProjectId,
   titleFromAudioFileName,
@@ -89,6 +90,23 @@ export function HomeScreen() {
         updatedAt: Date.now(),
         source: "new",
       });
+    } finally {
+      setBusy(false);
+    }
+  }, [startFreshSession, openStudioWithProject]);
+
+  const onLearn = useCallback(async () => {
+    setBusy(true);
+    try {
+      await startFreshSession();
+      openStudioWithProject({
+        id: createProjectId(),
+        title: "Untitled Song",
+        artist: "Unknown Artist",
+        updatedAt: Date.now(),
+        source: "new",
+      });
+      useTutorialStore.getState().start(0);
     } finally {
       setBusy(false);
     }
@@ -194,6 +212,25 @@ export function HomeScreen() {
           loop — no separate tools.
         </p>
       </div>
+
+      <button
+        type="button"
+        className="shell-learn-banner"
+        disabled={busy}
+        onClick={() => void onLearn()}
+      >
+        <span className="shell-learn-banner__icon" aria-hidden>
+          🎓
+        </span>
+        <span>
+          <span className="shell-learn-banner__title">
+            Learn: chart your first song
+          </span>
+          <span className="shell-learn-banner__hint">
+            Guided 15-minute tour — audio in, notes down, .indies out
+          </span>
+        </span>
+      </button>
 
       <div
         className={`shell-dropzone${dragOver ? " is-hot" : ""}${busy ? " is-busy" : ""}`}

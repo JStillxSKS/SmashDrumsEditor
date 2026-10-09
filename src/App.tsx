@@ -42,6 +42,14 @@ function EditorShell() {
     return () => window.removeEventListener("sde:tutorial-open-left", openLeft);
   }, [setLeftOpen]);
 
+  // The guided tutorial can ask for the right drawer (playback panel on mobile).
+  useEffect(() => {
+    const openRight = () => setRightOpen(true);
+    window.addEventListener("sde:tutorial-open-right", openRight);
+    return () =>
+      window.removeEventListener("sde:tutorial-open-right", openRight);
+  }, [setRightOpen]);
+
   return (
     <>
       <MobileLayoutGate open={showGate} />

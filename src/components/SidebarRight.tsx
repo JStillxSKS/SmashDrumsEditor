@@ -175,7 +175,7 @@ export function SidebarRight() {
       </CollapsibleSection>
 
       <CollapsibleSection title="Playback" defaultOpen>
-        <div className="panel-section">
+        <div className="panel-section" data-tutorial="sidebar-playback">
           <p className="panel-section-title">
             Speed ({Math.round(playbackSpeed * 100)}%)
           </p>

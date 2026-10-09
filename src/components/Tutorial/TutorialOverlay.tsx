@@ -3,17 +3,33 @@ import { useEditorStore } from "../../store/useEditorStore";
 import { useTutorialStore } from "../../store/useTutorialStore";
 import {
   TUTORIAL_STEPS,
-  TUTORIAL_STEP_COUNT,
+  ADVANCED_TUTORIAL_STEPS,
   type TutorialWatch,
 } from "./tutorialSteps";
 import { useMobileLayout } from "../../hooks/useMobileLayout";
 
 type SpotRect = { x: number; y: number; w: number; h: number };
 
-/** Ask the studio shell to open the left drawer (metadata step on mobile). */
+/** Ask the studio shell to open the left drawer (sidebar steps on mobile). */
 function requestLeftDrawer(): void {
   window.dispatchEvent(new CustomEvent("sde:tutorial-open-left"));
 }
+
+/** Ask the studio shell to open the right drawer (playback step on mobile). */
+function requestRightDrawer(): void {
+  window.dispatchEvent(new CustomEvent("sde:tutorial-open-right"));
+}
+
+/** Sidebar targets that live in the left drawer on mobile. */
+const LEFT_DRAWER_TARGETS = new Set([
+  "sidebar-metadata",
+  "sidebar-difficulty",
+  "sidebar-playmode",
+  "sidebar-timing",
+]);
+
+/** Sidebar targets that live in the right drawer on mobile. */
+const RIGHT_DRAWER_TARGETS = new Set(["sidebar-playback"]);
 
 function findTarget(name: string): HTMLElement | null {
   const el = document.querySelector<HTMLElement>(`[data-tutorial="${name}"]`);
@@ -31,6 +47,7 @@ function findTarget(name: string): HTMLElement | null {
  */
 export function TutorialOverlay() {
   const active = useTutorialStore((s) => s.active);
+  const tour = useTutorialStore((s) => s.tour);
   const stepIndex = useTutorialStore((s) => s.stepIndex);
   const next = useTutorialStore((s) => s.next);
   const back = useTutorialStore((s) => s.back);
@@ -47,8 +64,10 @@ export function TutorialOverlay() {
   const [spot, setSpot] = useState<SpotRect | null>(null);
   const [measureTick, setMeasureTick] = useState(0);
 
-  const step = TUTORIAL_STEPS[Math.min(stepIndex, TUTORIAL_STEP_COUNT - 1)];
-  const isLast = stepIndex >= TUTORIAL_STEP_COUNT - 1;
+  const steps = tour === "advanced" ? ADVANCED_TUTORIAL_STEPS : TUTORIAL_STEPS;
+  const stepCount = steps.length;
+  const step = steps[Math.min(stepIndex, stepCount - 1)];
+  const isLast = stepIndex >= stepCount - 1;
   const watch: TutorialWatch = { audioLoaded, noteCount, hasTitle };
   const gateMet = step.gate ? step.gate.isMet(watch) : true;
 
@@ -81,16 +100,23 @@ export function TutorialOverlay() {
     };
   }, [active, measure, measureTick]);
 
-  // Metadata step: on mobile the left panel is a closed drawer — open it,
-  // then retry measuring a few times while it animates open.
+  // Sidebar steps: on mobile the panels are closed drawers — open the right
+  // one, then retry measuring a few times while it animates open.
   useEffect(() => {
-    if (!active || step.target !== "sidebar-metadata" || !isMobileShell) return;
-    if (findTarget("sidebar-metadata")) return;
-    requestLeftDrawer();
+    if (!active || !step.target || !isMobileShell) return;
+    const target = step.target;
+    const requestDrawer = LEFT_DRAWER_TARGETS.has(target)
+      ? requestLeftDrawer
+      : RIGHT_DRAWER_TARGETS.has(target)
+        ? requestRightDrawer
+        : null;
+    if (!requestDrawer) return;
+    if (findTarget(target)) return;
+    requestDrawer();
     let attempts = 0;
     const timer = window.setInterval(() => {
       attempts += 1;
-      if (findTarget("sidebar-metadata") || attempts >= 8) {
+      if (findTarget(target) || attempts >= 8) {
         window.clearInterval(timer);
       }
       measure();
@@ -147,12 +173,12 @@ export function TutorialOverlay() {
       >
         <div className="tutorial-progress">
           <span className="tutorial-kicker">
-            Step {stepIndex + 1} of {TUTORIAL_STEP_COUNT}
+            Step {stepIndex + 1} of {stepCount}
           </span>
           <div className="tutorial-progressbar" aria-hidden>
             <div
               className="tutorial-progressbar-fill"
-              style={{ width: `${((stepIndex + 1) / TUTORIAL_STEP_COUNT) * 100}%` }}
+              style={{ width: `${((stepIndex + 1) / stepCount) * 100}%` }}
             />
           </div>
         </div>

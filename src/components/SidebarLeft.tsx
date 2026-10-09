@@ -137,7 +137,7 @@ export function SidebarLeft() {
           </div>
         </div>
 
-        <div className="panel-section">
+        <div className="panel-section" data-tutorial="sidebar-difficulty">
           <p className="panel-section-title">Difficulty</p>
           <div className="btn-group btn-group-equal">
             {DIFFICULTIES.map((d) => (
@@ -170,7 +170,7 @@ export function SidebarLeft() {
           </p>
         </div>
 
-        <div className="panel-section">
+        <div className="panel-section" data-tutorial="sidebar-playmode">
           <p className="panel-section-title">Play mode</p>
           <div className="btn-group btn-group-equal">
             <button
@@ -341,7 +341,7 @@ export function SidebarLeft() {
             <option value="phases">Song phases</option>
           </select>
         </label>
-        <div className="sidebar-tab-panel">
+        <div className="sidebar-tab-panel" data-tutorial="sidebar-timing">
           {timingView === "anchors" && <TimingAnchorsPanel embedded />}
           {timingView === "phases" && <SongPhasesPanel embedded />}
         </div>

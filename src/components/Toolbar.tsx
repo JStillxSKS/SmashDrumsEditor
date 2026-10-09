@@ -577,6 +577,7 @@ export function Toolbar({
         </label>
         <label
           className="file-btn"
+          data-tutorial="toolbar-stems"
           title="Load drum stems (multi-select) — filenames with kick / snare / cym / crash / tom / hat / clap give each lane its own waveform"
         >
           🎚 Stems
@@ -683,9 +684,17 @@ export function Toolbar({
           type="button"
           data-tutorial="toolbar-help"
           title="Guided tour: chart your first song"
-          onClick={() => useTutorialStore.getState().start(0)}
+          onClick={() => useTutorialStore.getState().start("basic", 0)}
         >
           ? Tutorial
+        </button>
+        <button
+          className="btn"
+          type="button"
+          title="Advanced tour: stems, anchors, phases, difficulties, play modes"
+          onClick={() => useTutorialStore.getState().start("advanced", 0)}
+        >
+          ? Advanced
         </button>
         {window.electronAPI?.isDesktop && (
           <div className="toolbar-output" title={outputDir ?? "Output folder"}>

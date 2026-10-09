@@ -106,11 +106,32 @@ export function HomeScreen() {
         updatedAt: Date.now(),
         source: "new",
       });
-      useTutorialStore.getState().start(0);
+      useTutorialStore.getState().start("basic", 0);
     } finally {
       setBusy(false);
     }
   }, [startFreshSession, openStudioWithProject]);
+
+  const onLearnAdvanced = useCallback(async () => {
+    setBusy(true);
+    try {
+      if (!hasSession) {
+        await startFreshSession();
+      }
+      const state = useEditorStore.getState();
+      openStudioWithProject({
+        id: createProjectId(),
+        title: state.meta.NameSong || "Untitled Song",
+        artist: state.meta.NameArtist || "Unknown Artist",
+        updatedAt: Date.now(),
+        source: "new",
+        audioName: state.audioFileName ?? undefined,
+      });
+      useTutorialStore.getState().start("advanced", 0);
+    } finally {
+      setBusy(false);
+    }
+  }, [hasSession, startFreshSession, openStudioWithProject]);
 
   const onImport = useCallback(async () => {
     const file = await pickImportPackageFile();
@@ -228,6 +249,25 @@ export function HomeScreen() {
           </span>
           <span className="shell-learn-banner__hint">
             Guided 15-minute tour — audio in, notes down, .indies out
+          </span>
+        </span>
+      </button>
+
+      <button
+        type="button"
+        className="shell-learn-banner shell-learn-banner--advanced"
+        disabled={busy}
+        onClick={() => void onLearnAdvanced()}
+      >
+        <span className="shell-learn-banner__icon" aria-hidden>
+          🥁
+        </span>
+        <span>
+          <span className="shell-learn-banner__title">
+            Advanced: stems, anchors & more
+          </span>
+          <span className="shell-learn-banner__hint">
+            Drum stems, timing anchors, phases, difficulties, play modes
           </span>
         </span>
       </button>

@@ -1793,6 +1793,11 @@ body {
   border-color: var(--accent);
 }
 
+.shell-learn-banner--advanced {
+  background: linear-gradient(135deg, rgba(156, 111, 255, 0.14), rgba(156, 111, 255, 0.04));
+  border-color: rgba(156, 111, 255, 0.35);
+}
+
 .shell-learn-banner__icon {
   font-size: 1.5rem;
   line-height: 1;
